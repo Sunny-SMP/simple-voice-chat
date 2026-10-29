@@ -17,6 +17,7 @@ import net.md_5.bungee.api.event.ServerSwitchEvent;
 import net.md_5.bungee.api.plugin.Command;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.Plugin;
+import net.md_5.bungee.api.plugin.TabExecutor;
 import net.md_5.bungee.event.EventHandler;
 import net.md_5.bungee.protocol.packet.PluginMessage;
 
@@ -82,28 +83,60 @@ public class SimpleVoiceChatBungeecord extends VoiceProxy implements Listener {
         return ProxyServer.getInstance().getServers().entrySet().stream().map(e -> new BackendServer(e.getKey(), e.getValue().getSocketAddress())).toList();
     }
 
+    @Override
+    public UUID getPlayerUUID(String playerName) {
+        ProxiedPlayer player = plugin.getProxy().getPlayer(playerName);
+        return player == null ? null : player.getUniqueId();
+    }
+
+    @Override
+    public List<String> getPlayerNames() {
+        return plugin.getProxy().getPlayers().stream().map(ProxiedPlayer::getName).toList();
+    }
+
+    private class VoiceProxyBungeeCommand extends Command implements TabExecutor {
+
+        public VoiceProxyBungeeCommand() {
+            super(VOICECHAT_COMMAND);
+        }
+
+        @Override
+        public void execute(CommandSender sender, String[] args) {
+            voiceProxyCommand.execute(createCommandSender(sender), args);
+        }
+
+        @Override
+        public Iterable<String> onTabComplete(CommandSender sender, String[] args) {
+            return voiceProxyCommand.suggest(createCommandSender(sender), args);
+        }
+    }
+
+    private static de.maxhenkel.voicechat.command.CommandSender createCommandSender(CommandSender sender) {
+        return new de.maxhenkel.voicechat.command.CommandSender() {
+            @Override
+            public void sendMessage(String message) {
+                sender.sendMessage(new TextComponent(message));
+            }
+
+            @Override
+            public boolean hasPermission(String permission) {
+                return sender.hasPermission(permission);
+            }
+
+            @Override
+            public UUID getUniqueId() {
+                return sender instanceof ProxiedPlayer player ? player.getUniqueId() : null;
+            }
+        };
+    }
+
     public void onProxyInitialization() {
         plugin.getProxy().registerChannel(REQUEST_SECRET_CHANNEL);
         plugin.getProxy().registerChannel(REQUEST_SECRET_CHANNEL_1_12);
         plugin.getProxy().registerChannel(SECRET_CHANNEL);
         plugin.getProxy().registerChannel(SECRET_CHANNEL_1_12);
 
-        plugin.getProxy().getPluginManager().registerCommand(plugin, new Command(VOICECHAT_COMMAND) {
-            @Override
-            public void execute(CommandSender sender, String[] args) {
-                onVoicechatCommand(new de.maxhenkel.voicechat.command.CommandSender() {
-                    @Override
-                    public void sendMessage(String message) {
-                        sender.sendMessage(new TextComponent(message));
-                    }
-
-                    @Override
-                    public boolean hasPermission(String permission) {
-                        return sender.hasPermission(permission);
-                    }
-                }, args);
-            }
-        });
+        plugin.getProxy().getPluginManager().registerCommand(plugin, new VoiceProxyBungeeCommand());
 
         initViaVersionIntegration();
         reloadVoiceProxyServer();
@@ -174,6 +207,10 @@ public class SimpleVoiceChatBungeecord extends VoiceProxy implements Listener {
         } catch (IncompatibleVoiceChatException e) {
             event.setCancelled(true);
             getLogger().info("Player {} has an incompatible voice chat version: {}", p.getName(), e.getMessage());
+        } catch (Exception e) {
+            // A malformed secret must not reach the client unpatched, and clients must not be able to flood the log
+            event.setCancelled(true);
+            getLogger().debug("Dropped invalid voice chat plugin message on channel {} of player {}", event.getTag(), p.getName(), e);
         }
     }
 

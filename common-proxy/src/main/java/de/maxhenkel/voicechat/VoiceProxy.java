@@ -1,13 +1,12 @@
 package de.maxhenkel.voicechat;
 
 import de.maxhenkel.configbuilder.ConfigBuilder;
-import de.maxhenkel.voicechat.command.CommandSender;
+import de.maxhenkel.voicechat.command.VoiceProxyCommand;
 import de.maxhenkel.voicechat.config.ProxyConfig;
 import de.maxhenkel.voicechat.logging.VoiceChatLogger;
 import de.maxhenkel.voicechat.network.VoiceProxyServer;
 import de.maxhenkel.voicechat.sniffer.VoiceProxySniffer;
 import de.maxhenkel.voicechat.util.BackendServer;
-import de.maxhenkel.voicechat.util.PingManager;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -22,6 +21,8 @@ public abstract class VoiceProxy {
     public static final String MOD_ID = "voicechat";
     public static final String VOICECHAT_COMMAND = "voicechatproxy";
     public static final String PING_PERMISSION = "voicechat.ping";
+    public static final String RECONNECT_PERMISSION = "voicechat.reconnect";
+    public static final String RECONNECT_OTHERS_PERMISSION = "voicechat.reconnect.others";
     public static final String MOD_VERSION = BuildConstants.MOD_VERSION;
     public static final int COMPATIBILITY_VERSION = BuildConstants.COMPATIBILITY_VERSION;
 
@@ -31,6 +32,7 @@ public abstract class VoiceProxy {
     public static final String REQUEST_SECRET_CHANNEL_1_12 = "vc:request_secret";
 
     protected final VoiceProxySniffer voiceProxySniffer = new VoiceProxySniffer(this);
+    protected final VoiceProxyCommand voiceProxyCommand = new VoiceProxyCommand(this);
     private final VoiceChatLogger voiceChatLogger;
     protected VoiceProxyServer voiceProxyServer;
     private ProxyConfig voiceProxyConfig;
@@ -58,6 +60,19 @@ public abstract class VoiceProxy {
     public abstract Path getDataDirectory();
 
     public abstract List<BackendServer> getBackendServers();
+
+    /**
+     * Finds an online player on the proxy by name
+     *
+     * @param playerName the name of the player
+     * @return the UUID of the player, <code>null</code> if the player is not online
+     */
+    public abstract UUID getPlayerUUID(String playerName);
+
+    /**
+     * Returns the names of all players that are online on the proxy
+     */
+    public abstract List<String> getPlayerNames();
 
     /**
      * Returns which port to use for the VoiceProxyServer
@@ -131,108 +146,21 @@ public abstract class VoiceProxy {
         getLogger().debug("Player {} has disconnected from backend server, interrupting bridge if it exists", playerUUID);
     }
 
-    protected void onVoicechatCommand(CommandSender sender, String[] args) {
-        if (args.length <= 0) {
-            sender.sendMessage("Usage: /voicechatproxy ping");
-            return;
+    /**
+     * Drops the bridge and the sniffed backend socket of a player.
+     * The backend server times out the stale session and sends a new secret, which connects the player through a fresh bridge.
+     *
+     * @param playerUUID the UUID of the player on the proxy
+     * @return <code>false</code> if the player has no voice chat session on this proxy
+     */
+    public boolean reconnectPlayer(UUID playerUUID) {
+        if (voiceProxySniffer.getBackendSocket(playerUUID) == null) {
+            return false;
         }
-        if (!args[0].equalsIgnoreCase("ping")) {
-            sender.sendMessage("Unknown command");
-            return;
-        }
-        if (!sender.hasPermission(PING_PERMISSION)) {
-            sender.sendMessage("You do not have permission to use this command");
-            return;
-        }
-        List<BackendServer> backendServers = getBackendServers();
-        if (args.length <= 1) {
-            if (backendServers.isEmpty()) {
-                sender.sendMessage("No servers available to ping");
-                return;
-            }
-            sender.sendMessage("Servers available to ping:");
-            for (BackendServer backendServer : backendServers) {
-                sender.sendMessage(String.format("  - %s (%s)", backendServer.getName(), backendServer.getAddress()));
-            }
-            sender.sendMessage("Usage: /voicechatproxy ping <server name> <voice chat port>");
-            return;
-        }
-        if (args.length <= 2) {
-            sender.sendMessage("No voice chat port provided");
-            return;
-        }
-        if (args.length != 3) {
-            sender.sendMessage("Too many arguments");
-            return;
-        }
-
-        String serverName = args[1];
-        int voiceChatPort;
-        try {
-            voiceChatPort = Integer.parseInt(args[2]);
-            if (voiceChatPort <= 0 || voiceChatPort > 65535) {
-                throw new NumberFormatException();
-            }
-        } catch (NumberFormatException e) {
-            sender.sendMessage(String.format("Invalid voice chat port: %s", args[2]));
-            return;
-        }
-
-        BackendServer server = backendServers
-                .stream()
-                .filter(s -> s.getName().equals(serverName))
-                .findFirst()
-                .orElseGet(() -> backendServers
-                        .stream()
-                        .filter(s -> s.getName().equalsIgnoreCase(serverName))
-                        .findFirst()
-                        .orElse(null)
-                );
-
-        if (server == null) {
-            sender.sendMessage(String.format("Server '%s' not found", serverName));
-            return;
-        }
-
-        try {
-            PingManager.sendPing(server.getAddress(), voiceChatPort, 10, new PingManager.PingListener() {
-                @Override
-                public void onSend(int attempts) {
-                    sender.sendMessage(String.format("Sending ping to server '%s'", server.getName()));
-                }
-
-                @Override
-                public void onSuccessfulAttempt(int attempts, long pingMilliseconds) {
-                    sender.sendMessage(String.format("Received response from server '%s' in %s ms", server.getName(), pingMilliseconds));
-                }
-
-                @Override
-                public void onFailedAttempt(int attempts) {
-                    sender.sendMessage(String.format("No response from server '%s'", server.getName()));
-                }
-
-                @Override
-                public void onFinish(int successfulAttempts, int timeoutAttempts, long pingMilliseconds) {
-                    if (successfulAttempts > 0) {
-                        if (timeoutAttempts > 0) {
-                            sender.sendMessage(String.format("Connection check unstable for server '%s' (Ping: %s ms, %s/%s attempts timed out)", server.getName(), pingMilliseconds, timeoutAttempts, successfulAttempts + timeoutAttempts));
-                        } else {
-                            sender.sendMessage(String.format("Connection check successful for server '%s' (Ping: %s ms)", server.getName(), pingMilliseconds));
-                        }
-                    } else {
-                        sender.sendMessage(String.format("Connection check failed for server '%s'", server.getName()));
-                    }
-                }
-
-                @Override
-                public void onError(Exception e) {
-                    sender.sendMessage(String.format("Error pinging server '%s': %s", server.getName(), e.getMessage()));
-                }
-
-            });
-        } catch (Exception e) {
-            sender.sendMessage(String.format("Error pinging server '%s': %s", server.getName(), e.getMessage()));
-        }
+        voiceProxySniffer.resetBackendSocket(playerUUID);
+        disconnectBridge(playerUUID);
+        voiceChatLogger.info("Reconnecting player {}", playerUUID);
+        return true;
     }
 
     public ProxyConfig getConfig() {

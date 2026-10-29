@@ -1,6 +1,7 @@
 package de.maxhenkel.voicechat;
 
 import com.google.inject.Inject;
+import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
@@ -81,6 +82,35 @@ public class SimpleVoiceChatVelocity extends VoiceProxy {
         return proxyServer.getAllServers().stream().map(server -> new BackendServer(server.getServerInfo().getName(), server.getServerInfo().getAddress())).toList();
     }
 
+    @Override
+    public UUID getPlayerUUID(String playerName) {
+        return proxyServer.getPlayer(playerName).map(Player::getUniqueId).orElse(null);
+    }
+
+    @Override
+    public List<String> getPlayerNames() {
+        return proxyServer.getAllPlayers().stream().map(Player::getUsername).toList();
+    }
+
+    private static CommandSender createCommandSender(CommandSource source) {
+        return new CommandSender() {
+            @Override
+            public void sendMessage(String message) {
+                source.sendMessage(Component.text(message));
+            }
+
+            @Override
+            public boolean hasPermission(String permission) {
+                return source.hasPermission(permission);
+            }
+
+            @Override
+            public UUID getUniqueId() {
+                return source instanceof Player player ? player.getUniqueId() : null;
+            }
+        };
+    }
+
     @Subscribe
     public void onProxyInitialization(ProxyInitializeEvent event) {
         proxyServer.getChannelRegistrar().register(
@@ -89,18 +119,16 @@ public class SimpleVoiceChatVelocity extends VoiceProxy {
                 MinecraftChannelIdentifier.from(SECRET_CHANNEL),
                 MinecraftChannelIdentifier.from(SECRET_CHANNEL_1_12)
         );
-        proxyServer.getCommandManager().register(proxyServer.getCommandManager().metaBuilder(VOICECHAT_COMMAND).plugin(this).build(), (SimpleCommand) invocation -> {
-            onVoicechatCommand(new CommandSender() {
-                @Override
-                public void sendMessage(String message) {
-                    invocation.source().sendMessage(Component.text(message));
-                }
+        proxyServer.getCommandManager().register(proxyServer.getCommandManager().metaBuilder(VOICECHAT_COMMAND).plugin(this).build(), new SimpleCommand() {
+            @Override
+            public void execute(Invocation invocation) {
+                voiceProxyCommand.execute(createCommandSender(invocation.source()), invocation.arguments());
+            }
 
-                @Override
-                public boolean hasPermission(String permission) {
-                    return invocation.source().hasPermission(permission);
-                }
-            }, invocation.arguments());
+            @Override
+            public List<String> suggest(Invocation invocation) {
+                return voiceProxyCommand.suggest(createCommandSender(invocation.source()), invocation.arguments());
+            }
         });
         initViaVersionIntegration();
         reloadVoiceProxyServer();
@@ -171,6 +199,10 @@ public class SimpleVoiceChatVelocity extends VoiceProxy {
         } catch (IncompatibleVoiceChatException e) {
             event.setResult(PluginMessageEvent.ForwardResult.handled());
             getLogger().info("Player {} has an incompatible voice chat version: {}", p.getUsername(), e.getMessage());
+        } catch (Exception e) {
+            // A malformed secret must not reach the client unpatched, and clients must not be able to flood the log
+            event.setResult(PluginMessageEvent.ForwardResult.handled());
+            getLogger().debug("Dropped invalid voice chat plugin message on channel {} of player {}", event.getIdentifier().getId(), p.getUsername(), e);
         }
     }
 
