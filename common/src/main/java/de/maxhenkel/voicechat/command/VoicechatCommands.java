@@ -1,5 +1,6 @@
 package de.maxhenkel.voicechat.command;
 
+import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -31,7 +32,6 @@ import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 public class VoicechatCommands {
 
@@ -40,261 +40,303 @@ public class VoicechatCommands {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> literalBuilder = Commands.literal(VOICECHAT_COMMAND);
 
-        literalBuilder.executes(commandSource -> help(dispatcher, commandSource));
-        literalBuilder.then(Commands.literal("help").executes(commandSource -> help(dispatcher, commandSource)));
+        literalBuilder.executes(context -> help(dispatcher, context));
+        literalBuilder.then(Commands.literal("help").executes(context -> help(dispatcher, context)));
 
-        literalBuilder.then(Commands.literal("test").requires((commandSource) -> checkPermission(commandSource, PermissionManager.INSTANCE.ADMIN_PERMISSION)).then(Commands.argument("target", EntityArgument.player()).executes((commandSource) -> {
-            if (checkNoVoicechat(commandSource)) {
-                return 0;
-            }
-            ServerPlayer player = EntityArgument.getPlayer(commandSource, "target");
-            Server server = Voicechat.SERVER.getServer();
-            if (server == null) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.voice_chat_unavailable"), false);
-                return 1;
-            }
+        literalBuilder.then(Commands.literal("test")
+                .requires(source -> checkPermission(source, PermissionManager.INSTANCE.ADMIN_PERMISSION))
+                .then(Commands.argument("target", EntityArgument.player())
+                        .executes(context -> test(context.getSource(), EntityArgument.getPlayer(context, "target")))));
 
-            if (!Voicechat.SERVER.isCompatible(player)) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.player_no_voicechat", player.getDisplayName(), CommonCompatibilityManager.INSTANCE.getModName()), false);
-                return 1;
-            }
-
-            ClientConnection clientConnection = server.getConnections().get(player.getUUID());
-            if (clientConnection == null) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.client_not_connected"), false);
-                return 1;
-            }
-            try {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.sending_ping"), false);
-
-                server.getPingManager().sendPing(clientConnection, 500, 10, new PingManager.PingListener() {
-
-                    @Override
-                    public void onPong(int attempts, long pingMilliseconds) {
-                        if (attempts <= 1) {
-                            commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.ping_received", pingMilliseconds), false);
-                        } else {
-                            commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.ping_received_attempt", pingMilliseconds, attempts), false);
-                        }
+        literalBuilder.then(Commands.literal("reconnect")
+                .executes(context -> {
+                    ServerPlayer player = getVoicechatPlayer(context.getSource());
+                    if (player == null) {
+                        return 0;
                     }
+                    return reconnect(context.getSource(), player);
+                })
+                .then(Commands.argument("target", EntityArgument.player())
+                        .requires(source -> checkPermission(source, PermissionManager.INSTANCE.ADMIN_PERMISSION))
+                        .executes(context -> reconnect(context.getSource(), EntityArgument.getPlayer(context, "target")))));
 
-                    @Override
-                    public void onFailedAttempt(int attempts) {
-                        commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.ping_retry"), false);
-                    }
+        literalBuilder.then(Commands.literal("invite")
+                .requires(CommandSourceStack::isPlayer)
+                .then(Commands.argument("target", EntityArgument.player())
+                        .executes(context -> invite(context.getSource(), EntityArgument.getPlayer(context, "target")))));
 
-                    @Override
-                    public void onTimeout(int attempts) {
-                        commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.ping_timed_out", attempts), false);
-                    }
-                });
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.ping_sent_waiting"), false);
-            } catch (Exception e) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.failed_to_send_ping", e.getMessage()), false);
-                Voicechat.LOGGER.warn("Failed to send ping", e);
-                return 1;
-            }
-            return 1;
-        })));
+        literalBuilder.then(Commands.literal("join")
+                .requires(CommandSourceStack::isPlayer)
+                .then(Commands.argument("group_id", UuidArgument.uuid())
+                        .executes(context -> joinGroupById(context.getSource(), UuidArgument.getUuid(context, "group_id"), null))
+                        .then(Commands.argument("password", StringArgumentType.string())
+                                .executes(context -> joinGroupById(context.getSource(), UuidArgument.getUuid(context, "group_id"), getPassword(context)))))
+                .then(Commands.argument("group_name", StringArgumentType.string())
+                        .suggests(GroupNameSuggestionProvider.INSTANCE)
+                        .executes(context -> joinGroupByName(context.getSource(), StringArgumentType.getString(context, "group_name"), null))
+                        .then(Commands.argument("password", StringArgumentType.string())
+                                .executes(context -> joinGroupByName(context.getSource(), StringArgumentType.getString(context, "group_name"), getPassword(context))))));
 
-        literalBuilder.then(Commands.literal("invite").then(Commands.argument("target", EntityArgument.player()).executes((commandSource) -> {
-            if (checkNoVoicechat(commandSource)) {
-                return 0;
-            }
-            ServerPlayer source = commandSource.getSource().getPlayerOrException();
-
-            Server server = Voicechat.SERVER.getServer();
-            if (server == null) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.voice_chat_unavailable"), false);
-                return 1;
-            }
-
-            PlayerState state = server.getPlayerStateManager().getState(source.getUUID());
-
-            if (state == null || !state.hasGroup()) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.not_in_group"), false);
-                return 1;
-            }
-
-            ServerPlayer player = EntityArgument.getPlayer(commandSource, "target");
-            Group group = server.getGroupManager().getGroup(state.getGroup());
-
-            if (group == null) {
-                return 1;
-            }
-
-            if (!Voicechat.SERVER.isCompatible(player)) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.player_no_voicechat", player.getDisplayName(), CommonCompatibilityManager.INSTANCE.getModName()), false);
-                return 1;
-            }
-
-            String passwordSuffix = group.getPassword() == null ? "" : String.format(" %s", StringArgumentType.escapeIfRequired(group.getPassword()));
-            player.sendSystemMessage(Component.translatable("message.voicechat.invite", source.getDisplayName(), Component.literal(group.getName()).withStyle(ChatFormatting.GRAY), ComponentUtils.wrapInSquareBrackets(Component.translatable("message.voicechat.accept_invite").withStyle(style -> style.withClickEvent(new ClickEvent.RunCommand("/voicechat join " + group.getId().toString() + passwordSuffix)).withHoverEvent(new HoverEvent.ShowText(Component.translatable("message.voicechat.accept_invite.hover"))))).withStyle(ChatFormatting.GREEN)));
-
-            commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.invite_successful", player.getDisplayName()), false);
-
-            return 1;
-        })));
-
-        literalBuilder.then(Commands.literal("join").then(Commands.argument("group_id", UuidArgument.uuid()).executes((commandSource) -> {
-            if (checkNoVoicechat(commandSource)) {
-                return 0;
-            }
-            UUID groupID = UuidArgument.getUuid(commandSource, "group_id");
-            return joinGroupById(commandSource.getSource(), groupID, null);
-        })));
-
-        literalBuilder.then(Commands.literal("join").then(Commands.argument("group_id", UuidArgument.uuid()).then(Commands.argument("password", StringArgumentType.string()).executes((commandSource) -> {
-            if (checkNoVoicechat(commandSource)) {
-                return 0;
-            }
-            UUID groupID = UuidArgument.getUuid(commandSource, "group_id");
-            String password = StringArgumentType.getString(commandSource, "password");
-            return joinGroupById(commandSource.getSource(), groupID, password.isEmpty() ? null : password);
-        }))));
-
-        literalBuilder.then(Commands.literal("join").then(Commands.argument("group_name", StringArgumentType.string()).suggests(GroupNameSuggestionProvider.INSTANCE).executes((commandSource) -> {
-            if (checkNoVoicechat(commandSource)) {
-                return 0;
-            }
-            String groupName = StringArgumentType.getString(commandSource, "group_name");
-            return joinGroupByName(commandSource.getSource(), groupName, null);
-        })));
-
-        literalBuilder.then(Commands.literal("join").then(Commands.argument("group_name", StringArgumentType.string()).suggests(GroupNameSuggestionProvider.INSTANCE).then(Commands.argument("password", StringArgumentType.string()).executes((commandSource) -> {
-            if (checkNoVoicechat(commandSource)) {
-                return 0;
-            }
-            String groupName = StringArgumentType.getString(commandSource, "group_name");
-            String password = StringArgumentType.getString(commandSource, "password");
-            return joinGroupByName(commandSource.getSource(), groupName, password.isEmpty() ? null : password);
-        }))));
-
-        literalBuilder.then(Commands.literal("leave").executes((commandSource) -> {
-            if (checkNoVoicechat(commandSource)) {
-                return 0;
-            }
-            if (!Voicechat.SERVER_CONFIG.groupsEnabled.get()) {
-                commandSource.getSource().sendFailure(Component.translatable("message.voicechat.groups_disabled"));
-                return 1;
-            }
-
-            Server server = Voicechat.SERVER.getServer();
-            if (server == null) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.voice_chat_unavailable"), false);
-                return 1;
-            }
-            ServerPlayer source = commandSource.getSource().getPlayerOrException();
-
-            PlayerState state = server.getPlayerStateManager().getState(source.getUUID());
-            if (state == null || !state.hasGroup()) {
-                commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.not_in_group"), false);
-                return 1;
-            }
-
-            server.getGroupManager().leaveGroup(source);
-            commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.leave_successful"), false);
-            return 1;
-        }));
+        literalBuilder.then(Commands.literal("leave")
+                .requires(CommandSourceStack::isPlayer)
+                .executes(context -> leave(context.getSource())));
 
         dispatcher.register(literalBuilder);
     }
 
-    private static Server joinGroup(CommandSourceStack source) throws CommandSyntaxException {
+    private static int test(CommandSourceStack source, ServerPlayer player) {
+        Server server = getServer(source);
+        if (server == null || !checkTargetHasVoicechat(source, player)) {
+            return 0;
+        }
+
+        ClientConnection clientConnection = server.getConnections().get(player.getUUID());
+        if (clientConnection == null) {
+            source.sendFailure(Component.translatable("message.voicechat.client_not_connected"));
+            return 0;
+        }
+        try {
+            source.sendSuccess(() -> Component.translatable("message.voicechat.sending_ping"), false);
+
+            server.getPingManager().sendPing(clientConnection, 500, 10, new PingManager.PingListener() {
+
+                @Override
+                public void onPong(int attempts, long pingMilliseconds) {
+                    if (attempts <= 1) {
+                        source.sendSuccess(() -> Component.translatable("message.voicechat.ping_received", pingMilliseconds), false);
+                    } else {
+                        source.sendSuccess(() -> Component.translatable("message.voicechat.ping_received_attempt", pingMilliseconds, attempts), false);
+                    }
+                }
+
+                @Override
+                public void onFailedAttempt(int attempts) {
+                    source.sendSuccess(() -> Component.translatable("message.voicechat.ping_retry"), false);
+                }
+
+                @Override
+                public void onTimeout(int attempts) {
+                    source.sendFailure(Component.translatable("message.voicechat.ping_timed_out", attempts));
+                }
+            });
+            source.sendSuccess(() -> Component.translatable("message.voicechat.ping_sent_waiting"), false);
+        } catch (Exception e) {
+            source.sendFailure(Component.translatable("message.voicechat.failed_to_send_ping", e.getMessage()));
+            Voicechat.LOGGER.warn("Failed to send ping", e);
+            return 0;
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int reconnect(CommandSourceStack source, ServerPlayer player) {
+        Server server = getServer(source);
+        if (server == null || !checkTargetHasVoicechat(source, player)) {
+            return 0;
+        }
+
+        server.reconnectClient(player);
+        if (player.equals(source.getEntity())) {
+            source.sendSuccess(() -> Component.translatableWithFallback("message.voicechat.reconnect_self", "Reconnecting you to voice chat"), false);
+        } else {
+            source.sendSuccess(() -> Component.translatableWithFallback("message.voicechat.reconnect_other", "Reconnecting %s to voice chat", player.getDisplayName()), true);
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int invite(CommandSourceStack source, ServerPlayer player) throws CommandSyntaxException {
+        ServerPlayer sender = getVoicechatPlayer(source);
+        if (sender == null) {
+            return 0;
+        }
+        if (!CommonCompatibilityManager.INSTANCE.canSee(sender, player)) {
+            throw EntityArgument.NO_PLAYERS_FOUND.create();
+        }
+        Server server = getServer(source);
+        if (server == null) {
+            return 0;
+        }
+
+        PlayerState state = server.getPlayerStateManager().getState(sender.getUUID());
+        Group group = state == null || !state.hasGroup() ? null : server.getGroupManager().getGroup(state.getGroup());
+        if (group == null) {
+            source.sendFailure(Component.translatable("message.voicechat.not_in_group"));
+            return 0;
+        }
+
+        if (!checkTargetHasVoicechat(source, player)) {
+            return 0;
+        }
+
+        String passwordSuffix = group.getPassword() == null ? "" : " \"" + group.getPassword() + "\"";
+        player.sendSystemMessage(Component.translatable("message.voicechat.invite", sender.getDisplayName(), Component.literal(group.getName()).withStyle(ChatFormatting.GRAY), ComponentUtils.wrapInSquareBrackets(Component.translatable("message.voicechat.accept_invite").withStyle(style -> style.withClickEvent(new ClickEvent.RunCommand("/%s join %s%s".formatted(VOICECHAT_COMMAND, group.getId(), passwordSuffix))).withHoverEvent(new HoverEvent.ShowText(Component.translatable("message.voicechat.accept_invite.hover"))))).withStyle(ChatFormatting.GREEN)));
+
+        source.sendSuccess(() -> Component.translatable("message.voicechat.invite_successful", player.getDisplayName()), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int leave(CommandSourceStack source) {
+        ServerPlayer player = getVoicechatPlayer(source);
+        if (player == null) {
+            return 0;
+        }
+        if (!Voicechat.SERVER_CONFIG.groupsEnabled.get()) {
+            source.sendFailure(Component.translatable("message.voicechat.groups_disabled"));
+            return 0;
+        }
+        Server server = getServer(source);
+        if (server == null) {
+            return 0;
+        }
+
+        PlayerState state = server.getPlayerStateManager().getState(player.getUUID());
+        if (state == null || !state.hasGroup()) {
+            source.sendFailure(Component.translatable("message.voicechat.not_in_group"));
+            return 0;
+        }
+
+        server.getGroupManager().leaveGroup(player);
+        source.sendSuccess(() -> Component.translatable("message.voicechat.leave_successful"), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    @Nullable
+    private static String getPassword(CommandContext<CommandSourceStack> context) {
+        String password = StringArgumentType.getString(context, "password");
+        return password.isEmpty() ? null : password;
+    }
+
+    /**
+     * Checks if the source can join groups.
+     *
+     * @return the voice chat server or <code>null</code> if the source can't join groups
+     */
+    @Nullable
+    private static Server checkCanJoinGroup(CommandSourceStack source, ServerPlayer player) {
         if (!Voicechat.SERVER_CONFIG.groupsEnabled.get()) {
             source.sendFailure(Component.translatable("message.voicechat.groups_disabled"));
             return null;
         }
-
-        Server server = Voicechat.SERVER.getServer();
-        if (server == null) {
-            source.sendSuccess(() -> Component.translatable("message.voicechat.voice_chat_unavailable"), false);
-            return null;
-        }
-        ServerPlayer player = source.getPlayerOrException();
-
         if (!PermissionManager.INSTANCE.GROUPS_PERMISSION.hasPermission(player)) {
-            source.sendSuccess(() -> Component.translatable("message.voicechat.no_group_permission"), false);
+            source.sendFailure(Component.translatable("message.voicechat.no_group_permission"));
             return null;
         }
-
-        return server;
+        return getServer(source);
     }
 
-    private static int joinGroupByName(CommandSourceStack source, String groupName, @Nullable String password) throws CommandSyntaxException {
-        Server server = joinGroup(source);
+    private static int joinGroupByName(CommandSourceStack source, String groupName, @Nullable String password) {
+        ServerPlayer player = getVoicechatPlayer(source);
+        if (player == null) {
+            return 0;
+        }
+        Server server = checkCanJoinGroup(source, player);
         if (server == null) {
-            return 1;
+            return 0;
         }
 
-        List<Group> groups = server.getGroupManager().getGroups().values().stream().filter(group -> group.getName().equals(groupName)).collect(Collectors.toList());
+        List<Group> groups = server.getGroupManager().getGroups().values().stream().filter(group -> group.getName().equals(groupName)).toList();
 
         if (groups.isEmpty()) {
             source.sendFailure(Component.translatable("message.voicechat.group_does_not_exist"));
-            return 1;
+            return 0;
         }
 
         if (groups.size() > 1) {
             source.sendFailure(Component.translatable("message.voicechat.group_name_not_unique"));
-            return 1;
+            return 0;
         }
 
-        return joinGroup(source, server, groups.get(0).getId(), password);
+        return joinGroup(source, player, server, groups.getFirst().getId(), password);
     }
 
-    private static int joinGroupById(CommandSourceStack source, UUID groupID, @Nullable String password) throws CommandSyntaxException {
-        Server server = joinGroup(source);
+    private static int joinGroupById(CommandSourceStack source, UUID groupID, @Nullable String password) {
+        ServerPlayer player = getVoicechatPlayer(source);
+        if (player == null) {
+            return 0;
+        }
+        Server server = checkCanJoinGroup(source, player);
         if (server == null) {
-            return 1;
+            return 0;
         }
-        return joinGroup(source, server, groupID, password);
+        return joinGroup(source, player, server, groupID, password);
     }
 
-    private static int joinGroup(CommandSourceStack source, Server server, UUID groupID, @Nullable String password) throws CommandSyntaxException {
+    private static int joinGroup(CommandSourceStack source, ServerPlayer player, Server server, UUID groupID, @Nullable String password) {
         Group group = server.getGroupManager().getGroup(groupID);
 
         if (group == null) {
             source.sendFailure(Component.translatable("message.voicechat.group_does_not_exist"));
-            return 1;
+            return 0;
         }
 
-        server.getGroupManager().joinGroup(group, source.getPlayerOrException(), password);
+        server.getGroupManager().joinGroup(group, player, password);
         source.sendSuccess(() -> Component.translatable("message.voicechat.join_successful", Component.literal(group.getName()).withStyle(ChatFormatting.GRAY)), false);
-        return 1;
+        return Command.SINGLE_SUCCESS;
     }
 
-    private static int help(CommandDispatcher<CommandSourceStack> dispatcher, CommandContext<CommandSourceStack> commandSource) {
-        if (checkNoVoicechat(commandSource)) {
+    private static int help(CommandDispatcher<CommandSourceStack> dispatcher, CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        // Console and admins can use some commands without voice chat, players without it can't use any
+        ServerPlayer player = source.getPlayer();
+        if (player != null && !Voicechat.SERVER.isCompatible(player) && !PermissionManager.INSTANCE.ADMIN_PERMISSION.hasPermission(player)) {
+            sendVoicechatNeeded(source);
             return 0;
         }
         CommandNode<CommandSourceStack> voicechatCommand = dispatcher.getRoot().getChild(VOICECHAT_COMMAND);
-        Map<CommandNode<CommandSourceStack>, String> map = dispatcher.getSmartUsage(voicechatCommand, commandSource.getSource());
-        for (Map.Entry<CommandNode<CommandSourceStack>, String> entry : map.entrySet()) {
-            commandSource.getSource().sendSuccess(() -> Component.literal("/%s %s".formatted(VOICECHAT_COMMAND, entry.getValue())), false);
+        Map<CommandNode<CommandSourceStack>, String> map = dispatcher.getSmartUsage(voicechatCommand, source);
+        source.sendSuccess(() -> Component.literal(CommonCompatibilityManager.INSTANCE.getModName()).withStyle(ChatFormatting.GOLD), false);
+        for (String usage : map.values()) {
+            String command = "/%s %s".formatted(VOICECHAT_COMMAND, usage);
+            source.sendSuccess(() -> Component.literal(command).withStyle(style -> style.withClickEvent(new ClickEvent.SuggestCommand(command))), false);
         }
         return map.size();
     }
 
-    private static boolean checkNoVoicechat(CommandContext<CommandSourceStack> commandSource) {
-        try {
-            ServerPlayer player = commandSource.getSource().getPlayerOrException();
-            if (Voicechat.SERVER.isCompatible(player)) {
-                return false;
-            }
-            commandSource.getSource().sendFailure(Component.literal(Voicechat.TRANSLATIONS.voicechatNeededForCommandMessage.get().formatted(CommonCompatibilityManager.INSTANCE.getModName())));
-            return true;
-        } catch (Exception e) {
-            commandSource.getSource().sendFailure(Component.literal(Voicechat.TRANSLATIONS.playerCommandMessage.get()));
+    /**
+     * Gets the player that executed the command and checks if they have voice chat installed.
+     *
+     * @return the player or <code>null</code> if the source is not a player or has no voice chat installed
+     */
+    @Nullable
+    private static ServerPlayer getVoicechatPlayer(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
+            source.sendFailure(Component.literal(Voicechat.TRANSLATIONS.playerCommandMessage.get()));
+            return null;
+        }
+        if (!Voicechat.SERVER.isCompatible(player)) {
+            sendVoicechatNeeded(source);
+            return null;
+        }
+        return player;
+    }
+
+    private static void sendVoicechatNeeded(CommandSourceStack source) {
+        source.sendFailure(Component.literal(Voicechat.TRANSLATIONS.voicechatNeededForCommandMessage.get().formatted(CommonCompatibilityManager.INSTANCE.getModName())));
+    }
+
+    private static boolean checkTargetHasVoicechat(CommandSourceStack source, ServerPlayer target) {
+        if (Voicechat.SERVER.isCompatible(target)) {
             return true;
         }
+        source.sendFailure(Component.translatable("message.voicechat.player_no_voicechat", target.getDisplayName(), CommonCompatibilityManager.INSTANCE.getModName()));
+        return false;
+    }
+
+    @Nullable
+    private static Server getServer(CommandSourceStack source) {
+        Server server = Voicechat.SERVER.getServer();
+        if (server == null) {
+            source.sendFailure(Component.translatable("message.voicechat.voice_chat_unavailable"));
+        }
+        return server;
     }
 
     private static boolean checkPermission(CommandSourceStack stack, Permission permission) {
-        try {
-            return permission.hasPermission(stack.getPlayerOrException());
-        } catch (CommandSyntaxException e) {
-            return stack.permissions().hasPermission(new net.minecraft.server.permissions.Permission.HasCommandLevel(PermissionLevel.ADMINS));
+        ServerPlayer player = stack.getPlayer();
+        if (player != null) {
+            return permission.hasPermission(player);
         }
+        return stack.permissions().hasPermission(new net.minecraft.server.permissions.Permission.HasCommandLevel(PermissionLevel.ADMINS));
     }
 
 }
