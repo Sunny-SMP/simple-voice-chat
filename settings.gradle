@@ -11,4 +11,5 @@ pluginManagement {
 }
 
 rootProject.name = 'voicechat'
-include('api', 'common', 'common-client', 'common-proxy', 'fabric', 'fabric:api-stub', 'neoforge', 'forge', 'bukkit', 'paper', 'velocity', 'bungeecord')
+include('api', 'common', 'common-proxy', 'bukkit', 'paper', 'velocity')
+// Disabled: 'common-client', 'fabric', 'fabric:api-stub', 'neoforge', 'forge', 'bungeecord'
