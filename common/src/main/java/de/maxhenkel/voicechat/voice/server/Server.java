@@ -204,14 +204,16 @@ public class Server extends Thread {
         secrets.clear();
     }
 
+    /**
+     * This never creates a secret, as packets of players that just disconnected would otherwise leave a secret behind.
+     * That secret would never be removed and prevent the player from getting a new one when they join again.
+     *
+     * @param playerUUID the player uuid
+     * @return the secret of the player or null if the player has no secret
+     */
+    @Nullable
     public Secret getSecret(UUID playerUUID) {
-        if (hasSecret(playerUUID)) {
-            return secrets.get(playerUUID);
-        } else {
-            Secret secret = Secret.generateNewRandomSecret();
-            secrets.put(playerUUID, secret);
-            return secret;
-        }
+        return secrets.get(playerUUID);
     }
 
     /**
@@ -220,10 +222,11 @@ public class Server extends Thread {
      */
     @Nullable
     public Secret generateNewSecret(UUID playerUUID) {
-        if (hasSecret(playerUUID)) {
+        Secret secret = Secret.generateNewRandomSecret();
+        if (secrets.putIfAbsent(playerUUID, secret) != null) {
             return null;
         }
-        return getSecret(playerUUID);
+        return secret;
     }
 
     public boolean hasSecret(UUID playerUUID) {

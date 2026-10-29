@@ -88,7 +88,8 @@ public class NetworkMessage {
                 return null;
             }
             UUID playerID = b.readUUID();
-            if (!server.hasSecret(playerID)) {
+            Secret secret = server.getSecret(playerID);
+            if (secret == null) {
                 if (PingHandler.onPacket(server, packet.getSocketAddress(), playerID, b)) {
                     return null;
                 }
@@ -96,7 +97,7 @@ public class NetworkMessage {
                 Voicechat.LOGGER.debug("Player {} does not have a secret", playerID);
                 return null;
             }
-            return readFromBytes(packet.getSocketAddress(), server.getSecret(playerID), b.readByteArray(Utils.MAX_VOICE_CHAT_PACKET_SIZE), packet.getTimestamp());
+            return readFromBytes(packet.getSocketAddress(), secret, b.readByteArray(Utils.MAX_VOICE_CHAT_PACKET_SIZE), packet.getTimestamp());
         } catch (DecoderException | IndexOutOfBoundsException e) {
             Voicechat.LOGGER.debug("Received invalid packet from {}", packet.getSocketAddress());
             return null;
@@ -138,8 +139,16 @@ public class NetworkMessage {
         return -1;
     }
 
+    /**
+     * @return the encrypted packet or null if the player has no secret, which happens if they disconnected while the packet was sent
+     */
+    @Nullable
     public byte[] writeServer(Server server, ClientConnection connection) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
-        byte[] payload = write(server.getSecret(connection.getPlayerUUID()));
+        Secret secret = server.getSecret(connection.getPlayerUUID());
+        if (secret == null) {
+            return null;
+        }
+        byte[] payload = write(secret);
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer(1 + payload.length));
         buffer.writeByte(MAGIC_BYTE);
         buffer.writeByteArray(payload);
