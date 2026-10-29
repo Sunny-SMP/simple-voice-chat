@@ -40,6 +40,13 @@ public class Server extends Thread {
     private final MinecraftServer server;
     private VoicechatSocket socket;
     private final ProcessThread processThread;
+    /**
+     * The maximum number of received packets waiting to be processed.
+     * Without a limit, a packet flood or a stalled processing thread would grow the queue until the server runs out of memory.
+     * Packets are smaller than 4 KiB, so a full queue holds less than 256 MiB of packet data.
+     */
+    private static final int MAX_QUEUED_PACKETS = 65_536;
+
     private final BlockingQueue<RawUdpPacket> packetQueue;
     private final PingManager pingManager;
     private final PlayerStateManager playerStateManager;
@@ -67,7 +74,7 @@ public class Server extends Thread {
         connections = new ConcurrentHashMap<>();
         unCheckedConnections = new ConcurrentHashMap<>();
         secrets = new ConcurrentHashMap<>();
-        packetQueue = new LinkedBlockingQueue<>();
+        packetQueue = new LinkedBlockingQueue<>(MAX_QUEUED_PACKETS);
         pingManager = new PingManager(this);
         playerStateManager = new PlayerStateManager(this);
         groupManager = new ServerGroupManager(this);
@@ -132,7 +139,7 @@ public class Server extends Thread {
 
             while (!socket.isClosed()) {
                 try {
-                    packetQueue.add(socket.read());
+                    queuePacket(socket.read());
                 } catch (ProtocolException e) {
                     if (Voicechat.debugMode()) {
                         Voicechat.LOGGER.warn("Failed to read packet", e);
@@ -636,7 +643,17 @@ public class Server extends Thread {
     }
 
     public void addRawPacket(RawUdpPacket rawUdpPacket) {
-        packetQueue.add(rawUdpPacket);
+        queuePacket(rawUdpPacket);
+    }
+
+    private void queuePacket(RawUdpPacket rawUdpPacket) {
+        if (packetQueue.offer(rawUdpPacket)) {
+            return;
+        }
+        // Packets this far behind would be dropped for exceeding their TTL anyway
+        CooldownTimer.run("packet_queue_full", () -> {
+            Voicechat.LOGGER.warn("Dropping voice chat packets! The packet queue is full ({} packets)", MAX_QUEUED_PACKETS);
+        });
     }
 
     public PingManager getPingManager() {
