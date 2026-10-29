@@ -32,10 +32,17 @@ import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class VoicechatCommands {
 
     public static final String VOICECHAT_COMMAND = "voicechat";
+
+    /**
+     * How long players without the admin permission have to wait between reconnects
+     */
+    private static final long RECONNECT_COOLDOWN = 10_000L;
+    private static final Map<UUID, Long> RECONNECT_TIMES = new ConcurrentHashMap<>();
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> literalBuilder = Commands.literal(VOICECHAT_COMMAND);
@@ -49,6 +56,7 @@ public class VoicechatCommands {
                         .executes(context -> test(context.getSource(), EntityArgument.getPlayer(context, "target")))));
 
         literalBuilder.then(Commands.literal("reconnect")
+                .requires(source -> checkPermission(source, PermissionManager.INSTANCE.RECONNECT_PERMISSION) || checkPermission(source, PermissionManager.INSTANCE.ADMIN_PERMISSION))
                 .executes(context -> {
                     ServerPlayer player = getVoicechatPlayer(context.getSource());
                     if (player == null) {
@@ -134,6 +142,15 @@ public class VoicechatCommands {
             return 0;
         }
 
+        ServerPlayer sender = source.getPlayer();
+        if (sender != null && !PermissionManager.INSTANCE.ADMIN_PERMISSION.hasPermission(sender)) {
+            long remaining = getRemainingReconnectCooldown(sender.getUUID());
+            if (remaining > 0L) {
+                source.sendFailure(Component.translatableWithFallback("message.voicechat.reconnect_cooldown", "You can reconnect again in %s seconds", remaining));
+                return 0;
+            }
+        }
+
         server.reconnectClient(player);
         if (player.equals(source.getEntity())) {
             source.sendSuccess(() -> Component.translatableWithFallback("message.voicechat.reconnect_self", "Reconnecting you to voice chat"), false);
@@ -141,6 +158,21 @@ public class VoicechatCommands {
             source.sendSuccess(() -> Component.translatableWithFallback("message.voicechat.reconnect_other", "Reconnecting %s to voice chat", player.getDisplayName()), true);
         }
         return Command.SINGLE_SUCCESS;
+    }
+
+    /**
+     * Starts the reconnect cooldown of a player if it isn't running already.
+     *
+     * @return the remaining cooldown in seconds, <code>0</code> if the player can reconnect
+     */
+    private static long getRemainingReconnectCooldown(UUID playerUUID) {
+        long now = System.currentTimeMillis();
+        RECONNECT_TIMES.values().removeIf(time -> now - time >= RECONNECT_COOLDOWN);
+        Long lastReconnect = RECONNECT_TIMES.putIfAbsent(playerUUID, now);
+        if (lastReconnect == null) {
+            return 0L;
+        }
+        return Math.max(1L, (RECONNECT_COOLDOWN - (now - lastReconnect) + 999L) / 1000L);
     }
 
     private static int invite(CommandSourceStack source, ServerPlayer player) throws CommandSyntaxException {

@@ -117,6 +117,7 @@
   "message.voicechat.player_no_voicechat": "%s does not have %s installed",
   "message.voicechat.reconnect_self": "Reconnecting you to voice chat",
   "message.voicechat.reconnect_other": "Reconnecting %s to voice chat",
+  "message.voicechat.reconnect_cooldown": "You can reconnect again in %s seconds",
   "message.voicechat.mute.enabled": "Press to unmute your microphone.",
   "message.voicechat.mute.disabled": "Press to mute your microphone.",
   "message.voicechat.mute.disabled_ptt": "You can't mute your microphone when using push to talk.",
