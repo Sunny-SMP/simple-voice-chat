@@ -1,5 +1,6 @@
 package de.maxhenkel.voicechat.command;
 
+import com.google.common.cache.CacheBuilder;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -29,10 +30,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.PermissionLevel;
 
 import javax.annotation.Nullable;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class VoicechatCommands {
 
@@ -42,7 +43,10 @@ public class VoicechatCommands {
      * How long players without the admin permission have to wait between reconnects
      */
     private static final long RECONNECT_COOLDOWN = 10_000L;
-    private static final Map<UUID, Long> RECONNECT_TIMES = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> RECONNECT_TIMES = CacheBuilder.newBuilder()
+            .expireAfterWrite(Duration.ofMillis(RECONNECT_COOLDOWN))
+            .<UUID, Long>build()
+            .asMap();
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> literalBuilder = Commands.literal(VOICECHAT_COMMAND);
@@ -167,7 +171,6 @@ public class VoicechatCommands {
      */
     private static long getRemainingReconnectCooldown(UUID playerUUID) {
         long now = System.currentTimeMillis();
-        RECONNECT_TIMES.values().removeIf(time -> now - time >= RECONNECT_COOLDOWN);
         Long lastReconnect = RECONNECT_TIMES.putIfAbsent(playerUUID, now);
         if (lastReconnect == null) {
             return 0L;
