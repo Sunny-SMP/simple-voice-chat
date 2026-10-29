@@ -34,7 +34,11 @@ public class ClientConnection {
     }
 
     public void send(Server server, NetworkMessage message) throws Exception {
-        server.getSocket().send(message.writeServer(server, this), address);
+        byte[] data = message.writeServer(server, this);
+        if (data == null) {
+            return;
+        }
+        server.getSocket().send(data, address);
     }
 
 }
