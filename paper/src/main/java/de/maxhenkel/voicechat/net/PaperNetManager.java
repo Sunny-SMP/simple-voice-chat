@@ -3,6 +3,7 @@ package de.maxhenkel.voicechat.net;
 import de.maxhenkel.voicechat.BukkitUtils;
 import de.maxhenkel.voicechat.Voicechat;
 import de.maxhenkel.voicechat.VoicechatPaperPlugin;
+import de.maxhenkel.voicechat.debug.CooldownTimer;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
@@ -37,19 +38,27 @@ public class PaperNetManager extends NetManager {
             String packetId = type.id().toString();
             if (toServer) {
                 Bukkit.getMessenger().registerIncomingPluginChannel(VoicechatPaperPlugin.INSTANCE, packetId, (s, player, bytes) -> {
-                    try {
-                        T packet = packetType.getDeclaredConstructor().newInstance();
-                        FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.wrappedBuffer(bytes));
-
-                        packet.fromBytes(buffer);
-                        ServerPlayer serverPlayer = BukkitUtils.getPlayer(player);
-                        if (!Voicechat.SERVER.isCompatible(serverPlayer) && !packetType.equals(RequestSecretPacket.class)) {
-                            return;
-                        }
-                        c.onServerPacket(serverPlayer, packet);
-                    } catch (Exception e) {
-                        Voicechat.LOGGER.error("Failed to read packet", e);
+                    ServerPlayer serverPlayer = BukkitUtils.getPlayer(player);
+                    // Count the packet before parsing it, so invalid packets can't bypass the rate limit
+                    if (!Channel.checkRateLimit(serverPlayer)) {
+                        return;
                     }
+                    if (!Voicechat.SERVER.isCompatible(serverPlayer) && !packetType.equals(RequestSecretPacket.class)) {
+                        return;
+                    }
+                    T packet;
+                    try {
+                        packet = packetType.getDeclaredConstructor().newInstance();
+                        packet.fromBytes(new FriendlyByteBuf(Unpooled.wrappedBuffer(bytes)));
+                    } catch (Exception e) {
+                        // Clients control the contents, so don't let them flood the log.
+                        // One shared key, as the cooldown timer never forgets a key.
+                        CooldownTimer.run("invalid_packet", () -> {
+                            Voicechat.LOGGER.warn("Received invalid {} packet from {}: {}", packetId, player.getName(), e.toString());
+                        });
+                        return;
+                    }
+                    c.dispatchServerPacket(serverPlayer, packet);
                 });
             }
             if (toClient) {

@@ -21,11 +21,32 @@ public class Channel<T extends Packet<T>> {
     }
 
     public void onServerPacket(ServerPlayer player, T packet) {
-        if (!Voicechat.SERVER.getRateLimiter().allow(player.getUUID())) {
-            Voicechat.LOGGER.warn("Player {} exceeded packet rate limit", player.getName().getString());
-            player.connection.disconnect(Component.translatableWithFallback("disconnect.exceeded_packet_rate", "Kicked for exceeding packet rate limit"));
+        if (!checkRateLimit(player)) {
             return;
         }
+        dispatchServerPacket(player, packet);
+    }
+
+    /**
+     * Counts a received packet towards the rate limit of the player and kicks them if they exceeded it.
+     *
+     * @param player the player that sent the packet
+     * @return <code>false</code> if the player exceeded the rate limit
+     */
+    public static boolean checkRateLimit(ServerPlayer player) {
+        if (Voicechat.SERVER.getRateLimiter().allow(player.getUUID())) {
+            return true;
+        }
+        Voicechat.LOGGER.warn("Player {} exceeded packet rate limit", player.getName().getString());
+        player.connection.disconnect(Component.translatableWithFallback("disconnect.exceeded_packet_rate", "Kicked for exceeding packet rate limit"));
+        return false;
+    }
+
+    /**
+     * Passes a packet to the listener without counting it towards the rate limit.
+     * Only use this if the packet was already counted with {@link #checkRateLimit(ServerPlayer)}.
+     */
+    public void dispatchServerPacket(ServerPlayer player, T packet) {
         CommonCompatibilityManager.INSTANCE.execute(player.level().getServer(), () -> {
             if (serverListener != null) {
                 serverListener.onPacket(player, packet);
