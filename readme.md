@@ -14,6 +14,21 @@
 
 # Simple Voice Chat
 
+> [!NOTE]
+> This is a private fork of [Simple Voice Chat](https://github.com/henkelmax/simple-voice-chat) for the SunnySMP server, and nothing here is meant to go back upstream. For the official project, use [henkelmax/simple-voice-chat](https://github.com/henkelmax/simple-voice-chat).
+>
+> - `sunny/26.2` builds the Paper plugin for Minecraft 26.2.
+> - `sunny/26.3` builds the Paper, Bukkit and Velocity plugins. We only use the Velocity one.
+>
+> What we changed:
+> - Added `/voicechat reconnect` and `/voicechatproxy reconnect`, which reconnect a player's voice chat without them leaving the server.
+> - Reworked `/voicechat`: clickable help, console support and clearer errors.
+> - Fixed memory leaks, a race that could keep a player out of voice chat until the server restarted, and players getting stuck while connecting.
+> - Rate limited plugin messages and capped the voice packet queue.
+> - The Paper plugin no longer registers its commands on a Minecraft version it wasn't built for.
+>
+> Most of the changes in this fork were written with the help of AI ([Claude Code](https://claude.com/claude-code)).
+
 A proximity voice chat for Minecraft with a variety of [addons](https://modrepo.de/minecraft/voicechat/addons) that offer additional features and functionalities.
 
 :warning: **NOTE** This mod requires special setup on the server in order to work.
