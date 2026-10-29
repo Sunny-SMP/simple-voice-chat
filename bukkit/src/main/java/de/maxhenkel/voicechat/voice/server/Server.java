@@ -175,6 +175,24 @@ public class Server extends Thread {
         PluginManager.instance().onPlayerDisconnected(playerUUID);
     }
 
+    /**
+     * Drops the voice chat connection of a player and sends them a new secret, so their client connects again.
+     *
+     * @param player the player to reconnect
+     */
+    public void reconnectClient(Player player) {
+        UUID playerUUID = player.getUniqueId();
+        ClientConnection connection = connections.remove(playerUUID);
+        unCheckedConnections.remove(playerUUID);
+        secrets.remove(playerUUID);
+        if (connection != null) {
+            playerStateManager.onPlayerVoicechatDisconnect(playerUUID);
+            PluginManager.instance().onPlayerDisconnected(playerUUID);
+        }
+        Voicechat.LOGGER.info("Reconnecting player {}", player.getName());
+        Voicechat.SERVER.initializePlayerConnection(player);
+    }
+
     public void close() {
         socket.close();
         processThread.close();

@@ -9,6 +9,7 @@ public class PermissionManager {
     public static Permission LISTEN_PERMISSION = new Permission(Voicechat.MODID + ".listen", PermissionDefault.TRUE);
     public static Permission SPEAK_PERMISSION = new Permission(Voicechat.MODID + ".speak", PermissionDefault.TRUE);
     public static Permission GROUPS_PERMISSION = new Permission(Voicechat.MODID + ".groups", PermissionDefault.TRUE);
+    public static Permission RECONNECT_PERMISSION = new Permission(Voicechat.MODID + ".reconnect", PermissionDefault.TRUE);
     public static Permission ADMIN_PERMISSION = new Permission(Voicechat.MODID + ".admin", PermissionDefault.OP);
 
 }
