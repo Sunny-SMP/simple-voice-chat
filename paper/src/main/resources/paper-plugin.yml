@@ -20,6 +20,9 @@ permissions:
   voicechat.groups:
     description: Use voice chat groups
     default: true
+  voicechat.reconnect:
+    description: Reconnect yourself to voice chat
+    default: true
   voicechat.admin:
     description: Use admin commands
     default: op
