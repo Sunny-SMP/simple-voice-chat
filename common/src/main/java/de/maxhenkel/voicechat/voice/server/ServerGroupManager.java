@@ -90,6 +90,9 @@ public class ServerGroupManager {
         manager.setGroup(player, group.getId());
 
         NetManager.sendToClient(player, new JoinedGroupPacket(group.getId(), false));
+
+        // The player might have left a group that is empty now
+        cleanupGroups();
     }
 
     public void joinGroup(@Nullable Group group, ServerPlayer player, @Nullable String password) {
@@ -110,6 +113,9 @@ public class ServerGroupManager {
         manager.setGroup(player, group.getId());
 
         NetManager.sendToClient(player, new JoinedGroupPacket(group.getId(), false));
+
+        // The player might have left a group that is empty now
+        cleanupGroups();
     }
 
     public void leaveGroup(ServerPlayer player) {
