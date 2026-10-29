@@ -567,6 +567,21 @@ public class Server extends Thread {
             return false;
         });
 
+        // Clients whose connection check never arrives (e.g. because their address changed after authenticating) would be stuck forever
+        unCheckedConnections.values().removeIf(connection -> {
+            if (timestamp - connection.getLastKeepAliveResponse() >= Voicechat.SERVER_CONFIG.keepAlive.get() * 10L) {
+                secrets.remove(connection.getPlayerUUID());
+                Voicechat.LOGGER.info("Player {} failed to validate their connection in time", connection.getPlayerUUID());
+                ServerPlayer player = server.getPlayerList().getPlayer(connection.getPlayerUUID());
+                if (player != null) {
+                    Voicechat.LOGGER.info("Reconnecting player {}", player.getName().getString());
+                    Voicechat.SERVER.initializePlayerConnection(player);
+                }
+                return true;
+            }
+            return false;
+        });
+
         for (ClientConnection connection : connections.values()) {
             sendPacket(new KeepAlivePacket(), connection);
         }
