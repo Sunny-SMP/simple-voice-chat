@@ -51,8 +51,7 @@ public class PaperNetManager extends NetManager {
                         packet = packetType.getDeclaredConstructor().newInstance();
                         packet.fromBytes(new FriendlyByteBuf(Unpooled.wrappedBuffer(bytes)));
                     } catch (Exception e) {
-                        // Clients control the contents, so don't let them flood the log.
-                        // One shared key, as the cooldown timer never forgets a key.
+                        // Clients control the contents, so don't let them flood the log
                         CooldownTimer.run("invalid_packet", () -> {
                             Voicechat.LOGGER.warn("Received invalid {} packet from {}: {}", packetId, player.getName(), e.toString());
                         });
