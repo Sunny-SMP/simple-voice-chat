@@ -5,7 +5,6 @@ import com.mojang.brigadier.tree.RootCommandNode;
 import de.maxhenkel.voicechat.command.VoicechatCommands;
 import de.maxhenkel.voicechat.intercompatibility.CommonCompatibilityManager;
 import de.maxhenkel.voicechat.intercompatibility.PaperCommonCompatibilityManager;
-import io.papermc.paper.ServerBuildInfo;
 import io.papermc.paper.command.brigadier.ApiMirrorRootNode;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.bootstrap.BootstrapContext;
@@ -20,7 +19,7 @@ public final class VoicechatBootstrap implements PluginBootstrap {
 
     @Override
     public void bootstrap(BootstrapContext context) {
-        if (!isSupportedMinecraftVersion()) {
+        if (!VoicechatPaperPlugin.isSupportedMinecraftVersion()) {
             // The plugin disables itself when it gets enabled, which closes its class loader.
             // Commands registered here would outlive that and fail every time the command tree is sent to a player.
             context.getLogger().error("Incompatible Minecraft version - Not registering commands, this plugin requires Minecraft {}", BuildConstants.MINECRAFT_VERSION);
@@ -40,17 +39,6 @@ public final class VoicechatBootstrap implements PluginBootstrap {
             }
 
         });
-    }
-
-    /**
-     * @return <code>true</code> if the server runs the Minecraft version this plugin was built for
-     */
-    public static boolean isSupportedMinecraftVersion() {
-        try {
-            return BuildConstants.MINECRAFT_VERSION.equals(ServerBuildInfo.buildInfo().minecraftVersionId());
-        } catch (Throwable t) {
-            return false;
-        }
     }
 
     @Override

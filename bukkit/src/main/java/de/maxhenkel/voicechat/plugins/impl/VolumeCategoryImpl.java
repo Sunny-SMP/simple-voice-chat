@@ -4,6 +4,7 @@ import de.maxhenkel.voicechat.api.VolumeCategory;
 import de.maxhenkel.voicechat.util.FriendlyByteBuf;
 
 import javax.annotation.Nullable;
+import java.util.Arrays;
 import java.util.regex.Pattern;
 
 public class VolumeCategoryImpl implements VolumeCategory {
@@ -20,10 +21,19 @@ public class VolumeCategoryImpl implements VolumeCategory {
     private final String descriptionTranslationKey;
     @Nullable
     private final int[][] icon;
+    @Nullable
+    private final String tab;
+    @Nullable
+    private final String tabName;
+    @Nullable
+    private final String tabTranslationKey;
 
-    public VolumeCategoryImpl(String id, String name, @Nullable String nameTranslationKey, @Nullable String description, @Nullable String descriptionTranslationKey, @Nullable int[][] icon) {
+    public VolumeCategoryImpl(String id, String name, @Nullable String nameTranslationKey, @Nullable String description, @Nullable String descriptionTranslationKey, @Nullable int[][] icon, @Nullable String tab, @Nullable String tabName, @Nullable String tabTranslationKey) {
         if (!ID_REGEX.matcher(id).matches()) {
-            throw new IllegalArgumentException("Volume category ID can only contain a-z and _ with a maximum amount of 16 characters");
+            throw new IllegalStateException("Volume category ID can only contain a-z and _ with a maximum amount of 16 characters");
+        }
+        if (tab != null && !ID_REGEX.matcher(tab).matches()) {
+            throw new IllegalStateException("Volume category tab can only contain a-z and _ with a maximum amount of 16 characters");
         }
         this.id = id;
         this.name = name;
@@ -31,6 +41,9 @@ public class VolumeCategoryImpl implements VolumeCategory {
         this.description = description;
         this.descriptionTranslationKey = descriptionTranslationKey;
         this.icon = icon;
+        this.tab = tab;
+        this.tabName = tabName;
+        this.tabTranslationKey = tabTranslationKey;
     }
 
     @Override
@@ -67,12 +80,30 @@ public class VolumeCategoryImpl implements VolumeCategory {
         return icon;
     }
 
+    @Nullable
+    @Override
+    public String getTab() {
+        return tab;
+    }
+
+    @Nullable
+    @Override
+    public String getTabName() {
+        return tabName;
+    }
+
+    @Nullable
+    @Override
+    public String getTabTranslationKey() {
+        return tabTranslationKey;
+    }
+
     public static VolumeCategoryImpl fromBytes(FriendlyByteBuf buf) {
         String id = buf.readUtf(16);
         String name = buf.readUtf(16);
-        String nameTranslationKey = readOptionalString(buf);
-        String description = readOptionalString(buf);
-        String descriptionTranslationKey = readOptionalString(buf);
+        String nameTranslationKey = readOptionalString(buf, 256);
+        String description = readOptionalString(buf, 256);
+        String descriptionTranslationKey = readOptionalString(buf, 256);
         int[][] icon = null;
         if (buf.readBoolean()) {
             icon = new int[16][16];
@@ -82,13 +113,16 @@ public class VolumeCategoryImpl implements VolumeCategory {
                 }
             }
         }
-        return new VolumeCategoryImpl(id, name, nameTranslationKey, description, descriptionTranslationKey, icon);
+        String tab = readOptionalString(buf, 16);
+        String tabName = readOptionalString(buf, 16);
+        String tabTranslationKey = readOptionalString(buf, 256);
+        return new VolumeCategoryImpl(id, name, nameTranslationKey, description, descriptionTranslationKey, icon, tab, tabName, tabTranslationKey);
     }
 
     @Nullable
-    private static String readOptionalString(FriendlyByteBuf buf) {
+    private static String readOptionalString(FriendlyByteBuf buf, int maxLength) {
         if (buf.readBoolean()) {
-            return buf.readUtf(32767);
+            return buf.readUtf(maxLength);
         }
         return null;
     }
@@ -96,29 +130,26 @@ public class VolumeCategoryImpl implements VolumeCategory {
     public void toBytes(FriendlyByteBuf buf) {
         buf.writeUtf(id, 16);
         buf.writeUtf(name, 16);
-        writeOptionalString(buf, nameTranslationKey);
-        writeOptionalString(buf, description);
-        writeOptionalString(buf, descriptionTranslationKey);
+        writeOptionalString(buf, nameTranslationKey, 256);
+        writeOptionalString(buf, description, 256);
+        writeOptionalString(buf, descriptionTranslationKey, 256);
         buf.writeBoolean(icon != null);
         if (icon != null) {
-            if (icon.length != 16) {
-                throw new IllegalStateException("Icon is not 16x16");
-            }
             for (int x = 0; x < icon.length; x++) {
-                if (icon[x].length != 16) {
-                    throw new IllegalStateException("Icon is not 16x16");
-                }
                 for (int y = 0; y < icon.length; y++) {
                     buf.writeInt(icon[x][y]);
                 }
             }
         }
+        writeOptionalString(buf, tab, 16);
+        writeOptionalString(buf, tabName, 16);
+        writeOptionalString(buf, tabTranslationKey, 256);
     }
 
-    private static void writeOptionalString(FriendlyByteBuf buf, @Nullable String string) {
+    private static void writeOptionalString(FriendlyByteBuf buf, @Nullable String string, int maxLength) {
         buf.writeBoolean(string != null);
         if (string != null) {
-            buf.writeUtf(string, 32767);
+            buf.writeUtf(string, maxLength);
         }
     }
 
@@ -151,6 +182,12 @@ public class VolumeCategoryImpl implements VolumeCategory {
         private String descriptionTranslationKey;
         @Nullable
         private int[][] icon;
+        @Nullable
+        private String tab;
+        @Nullable
+        private String tabName;
+        @Nullable
+        private String tabTranslationKey;
 
         @Override
         public Builder setId(String id) {
@@ -189,14 +226,47 @@ public class VolumeCategoryImpl implements VolumeCategory {
         }
 
         @Override
+        public Builder setTab(@Nullable String tab) {
+            this.tab = tab;
+            return this;
+        }
+
+        @Override
+        public Builder setTabName(@Nullable String tabName) {
+            this.tabName = tabName;
+            return this;
+        }
+
+        @Override
+        public Builder setTabTranslationKey(@Nullable String translationKey) {
+            this.tabTranslationKey = translationKey;
+            return this;
+        }
+
+        @Override
         public VolumeCategory build() {
             if (id == null) {
-                throw new IllegalStateException("id missing");
+                throw new IllegalStateException("Id missing");
             }
             if (name == null) {
-                throw new IllegalStateException("name missing");
+                throw new IllegalStateException("Name missing");
             }
-            return new VolumeCategoryImpl(id, name, nameTranslationKey, description, descriptionTranslationKey, icon);
+            checkLength(name, 16, "Name");
+            checkLength(nameTranslationKey, 256, "Name translation key");
+            checkLength(description, 256, "Description");
+            checkLength(descriptionTranslationKey, 256, "Description translation key");
+            checkLength(tabName, 16, "Tab name");
+            checkLength(tabTranslationKey, 256, "Tab translation key");
+            if (icon != null && (icon.length != 16 || Arrays.stream(icon).anyMatch(row -> row.length != 16))) {
+                throw new IllegalStateException("Icon is not 16x16");
+            }
+            return new VolumeCategoryImpl(id, name, nameTranslationKey, description, descriptionTranslationKey, icon, tab, tabName, tabTranslationKey);
+        }
+
+        private static void checkLength(@Nullable String value, int maxLength, String name) {
+            if (value != null && value.length() > maxLength) {
+                throw new IllegalStateException(String.format("%s can't be longer than %s characters", name, maxLength));
+            }
         }
     }
 

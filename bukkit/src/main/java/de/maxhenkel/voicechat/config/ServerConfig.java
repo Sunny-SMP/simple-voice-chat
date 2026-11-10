@@ -15,6 +15,7 @@ public class ServerConfig {
     public final ConfigEntry<Codec> voiceChatCodec;
     public final ConfigEntry<Integer> voiceChatMtuSize;
     public final ConfigEntry<Integer> tcpRateLimit;
+    public final ConfigEntry<Integer> packetQueueSize;
     public final ConfigEntry<Integer> keepAlive;
     public final ConfigEntry<Boolean> groupsEnabled;
     public final ConfigEntry<String> voiceHost;
@@ -59,7 +60,7 @@ public class ServerConfig {
                         "Valid values are 'VOIP', 'AUDIO', and 'RESTRICTED_LOWDELAY'"
                 );
         voiceChatMtuSize = builder
-                .integerEntry("mtu_size", AudioUtils.MAX_OPUS_PAYLOAD_SIZE, 512, 2048,
+                .integerEntry("mtu_size", AudioUtils.MAX_OPUS_PAYLOAD_SIZE, AudioUtils.MIN_MTU_SIZE, AudioUtils.MAX_MTU_SIZE,
                         "The maximum size that audio packets are allowed to have (in bytes)",
                         "Setting this to lower values might cause issues"
                 );
@@ -69,6 +70,10 @@ public class ServerConfig {
                         "Set this to -1 to disable the rate limit - This must be greater than 0 in all other cases",
                         "This only applies to voice chat packets that are sent through Minecrafts networking",
                         "This affects actions like opening/joining/leaving voice chat groups or general state changes like disabling/enabling the voice chat"
+                );
+        packetQueueSize = builder
+                .integerEntry("packet_queue_size", 16384, 64, Integer.MAX_VALUE,
+                        "The maximum amount of packets that can be queued on the server before new ones are dropped"
                 );
         keepAlive = builder
                 .integerEntry("keep_alive", 1000, 1000, Integer.MAX_VALUE,

@@ -122,14 +122,17 @@ public class VoiceProxyServer extends Thread {
             return;
         }
 
-        // The Player UUID comes right after the magic byte in the form of two longs
-        UUID playerUuid = new UUID(bb.getLong(), bb.getLong());
+        // The connection ID comes right after the magic byte in the form of two longs
+        UUID connectionId = new UUID(bb.getLong(), bb.getLong());
 
-        if (PingHandler.onPacket(this, packet.getSocketAddress(), playerUuid, bb)) {
+        if (PingHandler.onPacket(this, packet.getSocketAddress(), connectionId, bb)) {
             return;
         }
 
-        playerUuid = voiceProxy.getSniffer().getMappedPlayerUUID(playerUuid);
+        UUID playerUuid = voiceProxy.getSniffer().getMappedPlayerUUID(connectionId);
+        if (playerUuid == null) {
+            return;
+        }
 
         VoiceProxyBridgeManager.VoiceProxyBridge bridge = voiceProxyBridgeManager.getBridge(playerUuid);
         if (bridge == null) {
@@ -141,6 +144,11 @@ public class VoiceProxyServer extends Thread {
             if (bridge == null) {
                 return;
             }
+        }
+
+        // Only the address that opened the bridge may use it, so copied packets can't be injected from anywhere else
+        if (!bridge.getPlayerAddress().equals(packet.getSocketAddress())) {
+            return;
         }
 
         bridge.forward(packet);

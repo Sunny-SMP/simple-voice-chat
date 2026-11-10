@@ -46,7 +46,7 @@ public class ServerGroupManager {
             Voicechat.LOGGER.warn("Player {} tried to create a group with an invalid name", player.getDisplayName());
             return;
         }
-        if (packet.getPassword() != null && !Voicechat.GROUP_REGEX.matcher(packet.getPassword()).matches()) {
+        if (packet.getPassword() != null && !Voicechat.GROUP_PASSWORD_REGEX.matcher(packet.getPassword()).matches()) {
             Voicechat.LOGGER.warn("Player {} tried to create a group with an invalid password", player.getDisplayName());
             return;
         }
@@ -74,6 +74,12 @@ public class ServerGroupManager {
     }
 
     public void addGroup(Group group, @Nullable Player player) {
+        PlayerState state = player == null ? null : getStates().getState(player.getUniqueId());
+        boolean switchingGroup = state != null && state.hasGroup();
+        if (switchingGroup && PluginManager.instance().onLeaveGroup(player)) {
+            return;
+        }
+
         if (PluginManager.instance().onCreateGroup(player, group)) {
             return;
         }
@@ -88,6 +94,10 @@ public class ServerGroupManager {
         manager.setGroup(player, group.getId());
 
         NetManager.sendToClient(player, new JoinedGroupPacket(group.getId(), false));
+
+        if (switchingGroup) {
+            cleanupGroups();
+        }
     }
 
     public void joinGroup(@Nullable Group group, Player player, String password) {
@@ -95,8 +105,18 @@ public class ServerGroupManager {
             return;
         }
 
+        PlayerState state = getStates().getState(player.getUniqueId());
+        if (state != null && group.getId().equals(state.getGroup())) {
+            return;
+        }
+
         if (group.getPassword() != null && !group.getPassword().equals(password)) {
             NetManager.sendToClient(player, new JoinedGroupPacket(null, true));
+            return;
+        }
+
+        boolean switchingGroup = state != null && state.hasGroup();
+        if (switchingGroup && PluginManager.instance().onLeaveGroup(player)) {
             return;
         }
 
@@ -108,6 +128,10 @@ public class ServerGroupManager {
         manager.setGroup(player, group.getId());
 
         NetManager.sendToClient(player, new JoinedGroupPacket(group.getId(), false));
+
+        if (switchingGroup) {
+            cleanupGroups();
+        }
     }
 
     public void leaveGroup(Player player) {
@@ -148,7 +172,6 @@ public class ServerGroupManager {
 
         groups.remove(groupId);
         broadcastRemoveGroup(groupId);
-        // TODO Handle kicking players from group instead of preventing it
         return true;
     }
 

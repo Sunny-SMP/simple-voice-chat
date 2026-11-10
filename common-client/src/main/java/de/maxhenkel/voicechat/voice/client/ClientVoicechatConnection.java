@@ -8,18 +8,23 @@ import de.maxhenkel.voicechat.debug.VoicechatUncaughtExceptionHandler;
 import de.maxhenkel.voicechat.intercompatibility.ClientCompatibilityManager;
 import de.maxhenkel.voicechat.plugins.ClientPluginManager;
 import de.maxhenkel.voicechat.voice.common.*;
+import net.minecraft.client.Minecraft;
 
+import javax.annotation.Nullable;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ProtocolException;
+import java.net.UnknownHostException;
 
 public class ClientVoicechatConnection extends Thread {
 
     private final ClientVoicechat client;
     private final InitializationData data;
     private final ClientVoicechatSocket socket;
-    private final InetAddress address;
+    @Nullable
+    private volatile InetAddress address;
     private volatile boolean running;
+    private volatile byte[] connectionCheckNonce;
     private volatile boolean authenticated;
     private volatile boolean connected;
     private final AuthThread authThread;
@@ -28,26 +33,24 @@ public class ClientVoicechatConnection extends Thread {
     public ClientVoicechatConnection(ClientVoicechat client, InitializationData data) throws Exception {
         this.client = client;
         this.data = data;
-        if (data.getServerIP().equals("rtc-local") || data.getServerIP().equals("rtc-remote")) {
-            this.address = InetAddress.getLoopbackAddress();
-        } else {
-            this.address = InetAddress.getByName(data.getServerIP());
-        }
         this.socket = ClientPluginManager.instance().getClientSocketImplementation();
-        this.lastKeepAlive = -1;
+        this.socket.open();
         this.running = true;
         this.authThread = new AuthThread();
-        this.authThread.start();
         setDaemon(true);
         setName("VoiceChatConnectionThread");
         setUncaughtExceptionHandler(new VoicechatUncaughtExceptionHandler());
-        this.socket.open();
     }
 
     public InitializationData getData() {
         return data;
     }
 
+    /**
+     *
+     * @return the voice chat servers address - May be <code>null</code> if DNS hasn't been resolved yet
+     */
+    @Nullable
     public InetAddress getAddress() {
         return address;
     }
@@ -62,6 +65,16 @@ public class ClientVoicechatConnection extends Thread {
 
     @Override
     public void run() {
+        try {
+            address = resolveAddress();
+        } catch (UnknownHostException e) {
+            if (running) {
+                Voicechat.LOGGER.error("Failed to resolve voice chat server address '{}' - Disconnecting", data.getServerIP());
+                disconnect();
+            }
+            return;
+        }
+        authThread.start();
         try {
             while (running) {
                 RawUdpPacket rawPacket;
@@ -92,17 +105,18 @@ public class ClientVoicechatConnection extends Thread {
                 }
                 if (in == null) {
                     continue;
-                } else if (in.getPacket() instanceof AuthenticateAckPacket) {
+                } else if (in.getPacket() instanceof AuthenticateAckPacket packet) {
                     if (!authenticated) {
                         Voicechat.LOGGER.info("Server acknowledged authentication");
+                        connectionCheckNonce = packet.getNonce();
                         authenticated = true;
                     }
                 } else if (in.getPacket() instanceof ConnectionCheckAckPacket) {
                     if (authenticated && !connected) {
                         Voicechat.LOGGER.info("Server acknowledged connection check");
+                        lastKeepAlive = Utils.getMilliseconds();
                         connected = true;
-                        ClientCompatibilityManager.INSTANCE.emitVoiceChatConnectedEvent(this);
-                        lastKeepAlive = System.currentTimeMillis();
+                        executeIfActive(() -> ClientCompatibilityManager.INSTANCE.emitVoiceChatConnectedEvent(this));
                     }
                 } else if (in.getPacket() instanceof SoundPacket packet) {
                     client.processSoundPacket(packet);
@@ -110,7 +124,7 @@ public class ClientVoicechatConnection extends Thread {
                     Voicechat.LOGGER.info("Received ping {}, sending pong...", packet.getId());
                     sendToServer(new NetworkMessage(packet));
                 } else if (in.getPacket() instanceof KeepAlivePacket) {
-                    lastKeepAlive = System.currentTimeMillis();
+                    lastKeepAlive = Utils.getMilliseconds();
                     sendToServer(new NetworkMessage(new KeepAlivePacket()));
                 }
             }
@@ -124,6 +138,13 @@ public class ClientVoicechatConnection extends Thread {
                 disconnect();
             }
         }
+    }
+
+    private InetAddress resolveAddress() throws UnknownHostException {
+        if (data.getServerIP().equals("rtc-local") || data.getServerIP().equals("rtc-remote")) {
+            return InetAddress.getLoopbackAddress();
+        }
+        return InetAddress.getByName(data.getServerIP());
     }
 
     public void close() {
@@ -155,15 +176,29 @@ public class ClientVoicechatConnection extends Thread {
         }
     }
 
+    /**
+     * This must be called on the main thread
+     */
     public void checkTimeout() {
-        if (lastKeepAlive >= 0 && System.currentTimeMillis() - lastKeepAlive > data.getKeepAlive() * 10L) {
+        if (connected && Utils.getMilliseconds() - lastKeepAlive > data.getKeepAlive() * 10L) {
             Voicechat.LOGGER.info("Connection timeout");
-            disconnect();
+            ClientCompatibilityManager.INSTANCE.emitVoiceChatDisconnectedEvent();
         }
     }
 
     public void disconnect() {
-        ClientCompatibilityManager.INSTANCE.emitVoiceChatDisconnectedEvent();
+        executeIfActive(ClientCompatibilityManager.INSTANCE::emitVoiceChatDisconnectedEvent);
+    }
+
+    /**
+     * Runs the task on the Minecraft thread, but only if this is still the active connection
+     */
+    private void executeIfActive(Runnable task) {
+        Minecraft.getInstance().execute(() -> {
+            if (running) {
+                task.run();
+            }
+        });
     }
 
     private class AuthThread extends Thread {
@@ -194,7 +229,7 @@ public class ClientVoicechatConnection extends Thread {
                         Voicechat.LOGGER.warn("Trying to authenticate voice chat connection (this message will not be logged again)");
                         authLogMessageCount++;
                     }
-                    sendToServer(new NetworkMessage(new AuthenticatePacket(data.getPlayerUUID(), data.getSecret())));
+                    sendToServer(new NetworkMessage(new AuthenticatePacket()));
                 } else {
                     authLogMessageCount = 0;
                     if (validateLogMessageCount < 10) {
@@ -204,7 +239,7 @@ public class ClientVoicechatConnection extends Thread {
                         Voicechat.LOGGER.warn("Trying to validate voice chat connection (this message will not be logged again)");
                         validateLogMessageCount++;
                     }
-                    sendToServer(new NetworkMessage(new ConnectionCheckPacket()));
+                    sendToServer(new NetworkMessage(new ConnectionCheckPacket(connectionCheckNonce)));
                 }
 
                 Utils.sleep(1000);
