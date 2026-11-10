@@ -1,34 +1,41 @@
 package de.maxhenkel.voicechat.debug;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
+import de.maxhenkel.voicechat.voice.common.Utils;
 
-import java.time.Duration;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class CooldownTimer {
 
-    /**
-     * Entries are evicted after this time, so cooldowns can't be longer than this.
-     */
-    private static final long MAX_COOLDOWN = 60_000L;
+    private static final long CLEANUP_INTERVAL = 60_000L;
 
-    private static final Cache<String, Long> cooldowns = CacheBuilder.newBuilder()
-            .expireAfterWrite(Duration.ofMillis(MAX_COOLDOWN))
-            .build();
+    private static ConcurrentHashMap<String, Long> cooldowns;
+    private static volatile long lastCleanup;
+
+    static {
+        cooldowns = new ConcurrentHashMap<>();
+        lastCleanup = Utils.getMilliseconds();
+    }
 
     public static void run(String id, long time, Runnable runnable) {
-        if (time > MAX_COOLDOWN) {
-            throw new IllegalArgumentException("Cooldown can't be longer than %s ms".formatted(MAX_COOLDOWN));
-        }
-        Long lastRun = cooldowns.getIfPresent(id);
-        if (lastRun == null || System.currentTimeMillis() - lastRun > time) {
-            cooldowns.put(id, System.currentTimeMillis());
+        long currentTime = Utils.getMilliseconds();
+        Long cooldownEnd = cooldowns.get(id);
+        if (cooldownEnd == null || currentTime > cooldownEnd) {
+            cooldowns.put(id, currentTime + time);
             runnable.run();
         }
+        cleanup(currentTime);
     }
 
     public static void run(String id, Runnable runnable) {
         run(id, 10_000L, runnable);
+    }
+
+    private static void cleanup(long currentTime) {
+        if (currentTime - lastCleanup < CLEANUP_INTERVAL) {
+            return;
+        }
+        lastCleanup = currentTime;
+        cooldowns.values().removeIf(cooldownEnd -> cooldownEnd < currentTime);
     }
 
 }

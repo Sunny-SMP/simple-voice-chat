@@ -6,6 +6,7 @@ import de.maxhenkel.voicechat.VoicechatPaperPlugin;
 import de.maxhenkel.voicechat.debug.CooldownTimer;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.network.protocol.common.custom.DiscardedPayload;
@@ -55,6 +56,7 @@ public class PaperNetManager extends NetManager {
                         CooldownTimer.run("invalid_packet", () -> {
                             Voicechat.LOGGER.warn("Received invalid {} packet from {}: {}", packetId, player.getName(), e.toString());
                         });
+                        serverPlayer.connection.disconnect(Component.translatable("disconnect.genericReason", "Failed to parse packet"));
                         return;
                     }
                     c.dispatchServerPacket(serverPlayer, packet);

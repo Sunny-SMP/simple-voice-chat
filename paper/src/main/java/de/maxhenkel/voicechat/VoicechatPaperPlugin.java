@@ -1,15 +1,13 @@
 package de.maxhenkel.voicechat;
 
-import de.maxhenkel.configbuilder.ConfigBuilder;
 import de.maxhenkel.voicechat.api.BukkitVoicechatService;
-import de.maxhenkel.voicechat.config.PaperTranslations;
-import de.maxhenkel.voicechat.config.Translations;
 import de.maxhenkel.voicechat.integration.placeholderapi.VoicechatExpansion;
 import de.maxhenkel.voicechat.integration.viaversion.ViaVersionCompatibility;
 import de.maxhenkel.voicechat.intercompatibility.CommonCompatibilityManager;
 import de.maxhenkel.voicechat.intercompatibility.PaperCommonCompatibilityManager;
 import de.maxhenkel.voicechat.plugins.PluginManager;
 import de.maxhenkel.voicechat.plugins.impl.BukkitVoicechatServiceImpl;
+import io.papermc.paper.ServerBuildInfo;
 import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -18,6 +16,7 @@ import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.nio.file.Path;
+import java.util.logging.Level;
 
 public class VoicechatPaperPlugin extends JavaPlugin implements Listener {
 
@@ -32,8 +31,14 @@ public class VoicechatPaperPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
-        if (!VoicechatBootstrap.isSupportedMinecraftVersion()) {
-            getLogger().severe("Incompatible Minecraft version - This plugin requires Minecraft %s".formatted(BuildConstants.MINECRAFT_VERSION));
+        try {
+            if (!isSupportedMinecraftVersion()) {
+                getLogger().severe("Incompatible Minecraft version - This plugin requires Minecraft %s".formatted(BuildConstants.MINECRAFT_VERSION));
+                Bukkit.getPluginManager().disablePlugin(this);
+                return;
+            }
+        } catch (Throwable t) {
+            getLogger().log(Level.SEVERE, "Failed to check Minecraft version", t);
             Bukkit.getPluginManager().disablePlugin(this);
             return;
         }
@@ -54,11 +59,6 @@ public class VoicechatPaperPlugin extends JavaPlugin implements Listener {
             @Override
             protected void registerCommands() {
                 //NOOP, since commands need to get registered even earlier
-            }
-
-            @Override
-            protected Translations createTranslations(ConfigBuilder builder) {
-                return new PaperTranslations(builder);
             }
 
             @Override
@@ -100,6 +100,10 @@ public class VoicechatPaperPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onServerStart(ServerLoadEvent event) {
         PluginManager.instance().init();
+    }
+
+    public static boolean isSupportedMinecraftVersion() {
+        return BuildConstants.MINECRAFT_VERSION.equals(ServerBuildInfo.buildInfo().minecraftVersionId());
     }
 
 }

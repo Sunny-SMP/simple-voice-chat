@@ -2,7 +2,7 @@ package de.maxhenkel.voicechat.voice.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import de.maxhenkel.voicechat.Voicechat;
-import de.maxhenkel.voicechat.gui.volume.AdjustVolumeList;
+import de.maxhenkel.voicechat.gui.volume.AdjustVolumesScreen;
 import de.maxhenkel.voicechat.intercompatibility.ClientCompatibilityManager;
 import de.maxhenkel.voicechat.intercompatibility.CommonCompatibilityManager;
 import de.maxhenkel.voicechat.net.ClientServerNetManager;
@@ -40,7 +40,7 @@ public class ClientCategoryManager extends CategoryManager {
         if (category.getIcon() != null) {
             registerImage(category.getId(), fromIntArray(category.getIcon()));
         }
-        AdjustVolumeList.update();
+        AdjustVolumesScreen.updateCategories();
     }
 
     @Override
@@ -48,7 +48,7 @@ public class ClientCategoryManager extends CategoryManager {
     public VolumeCategoryImpl removeCategory(String categoryId) {
         VolumeCategoryImpl volumeCategory = super.removeCategory(categoryId);
         unRegisterImage(categoryId);
-        AdjustVolumeList.update();
+        AdjustVolumesScreen.updateCategories();
         return volumeCategory;
     }
 
@@ -72,15 +72,8 @@ public class ClientCategoryManager extends CategoryManager {
     }
 
     private NativeImage fromIntArray(int[][] icon) {
-        if (icon.length != 16) {
-            throw new IllegalStateException("Icon is not 16x16");
-        }
         NativeImage nativeImage = new NativeImage(16, 16, true);
         for (int x = 0; x < icon.length; x++) {
-            if (icon[x].length != 16) {
-                nativeImage.close();
-                throw new IllegalStateException("Icon is not 16x16");
-            }
             for (int y = 0; y < icon.length; y++) {
                 nativeImage.setPixel(x, y, icon[x][y]);
             }

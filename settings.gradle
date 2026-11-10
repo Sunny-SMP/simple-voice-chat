@@ -12,4 +12,4 @@ pluginManagement {
 
 rootProject.name = 'voicechat'
 include('api', 'common', 'paper')
-// Disabled: 'common-client', 'fabric', 'fabric:api-stub', 'neoforge', 'forge'
+// Disabled: 'common-client', 'fabric', 'fabric:api-stub', 'fabric:test-addon', 'neoforge', 'forge'
