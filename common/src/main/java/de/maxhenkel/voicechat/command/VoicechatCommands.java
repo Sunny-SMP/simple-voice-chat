@@ -72,6 +72,10 @@ public class VoicechatCommands {
                         .requires(source -> checkPermission(source, PermissionManager.INSTANCE.ADMIN_PERMISSION))
                         .executes(context -> reconnect(context.getSource(), EntityArgument.getPlayer(context, "target")))));
 
+        literalBuilder.then(Commands.literal("restart")
+                .requires(source -> checkPermission(source, PermissionManager.INSTANCE.ADMIN_PERMISSION))
+                .executes(context -> restart(context.getSource())));
+
         literalBuilder.then(Commands.literal("invite")
                 .requires(CommandSourceStack::isPlayer)
                 .then(Commands.argument("target", EntityArgument.player())
@@ -161,6 +165,15 @@ public class VoicechatCommands {
         } else {
             source.sendSuccess(() -> Component.translatableWithFallback("message.voicechat.reconnect_other", "Reconnecting %s to voice chat", player.getDisplayName()), true);
         }
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int restart(CommandSourceStack source) {
+        if (!Voicechat.SERVER.restartServer(source.getServer())) {
+            source.sendFailure(Component.translatableWithFallback("message.voicechat.restart_failed", "Failed to restart the voice chat server - check the server log"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.translatableWithFallback("message.voicechat.restart_successful", "Restarted the voice chat server - all groups were removed"), true);
         return Command.SINGLE_SUCCESS;
     }
 
