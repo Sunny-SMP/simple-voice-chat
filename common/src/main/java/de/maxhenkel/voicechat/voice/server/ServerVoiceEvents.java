@@ -16,6 +16,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import javax.annotation.Nullable;
+import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -100,6 +101,34 @@ public class ServerVoiceEvents {
         } catch (Exception e) {
             Voicechat.LOGGER.error("Failed to start voice chat server", e);
         }
+    }
+
+    /**
+     * Stops the voice chat server and starts a new one, then sends every online player with voice chat a new secret, so their clients connect again.
+     * <b>NOTE:</b> This removes every connection, group and player state! The new server reads the current config, for example a changed port.
+     *
+     * @param mcServer the Minecraft server
+     * @return if a new voice chat server was started
+     */
+    public boolean restartServer(MinecraftServer mcServer) {
+        Voicechat.LOGGER.info("Restarting voice chat server");
+        if (server != null) {
+            for (UUID playerUUID : List.copyOf(server.getConnections().keySet())) {
+                CommonCompatibilityManager.INSTANCE.emitServerVoiceChatDisconnectedEvent(playerUUID);
+                PluginManager.instance().onPlayerDisconnected(playerUUID);
+            }
+        }
+        serverStarting(mcServer);
+        if (server == null) {
+            return false;
+        }
+        for (ServerPlayer player : mcServer.getPlayerList().getPlayers()) {
+            server.onPlayerLoggedIn(player);
+            if (isCompatible(player)) {
+                initializePlayerConnection(player);
+            }
+        }
+        return true;
     }
 
     public void initializePlayerConnection(ServerPlayer player) {
