@@ -51,6 +51,10 @@ public class ConnectionSecrets {
         }
     }
 
+    public int size() {
+        return byPlayer.size();
+    }
+
     public synchronized void clear() {
         byPlayer.clear();
         byConnectionId.clear();

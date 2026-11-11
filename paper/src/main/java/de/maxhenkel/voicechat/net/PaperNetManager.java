@@ -4,6 +4,7 @@ import de.maxhenkel.voicechat.BukkitUtils;
 import de.maxhenkel.voicechat.Voicechat;
 import de.maxhenkel.voicechat.VoicechatPaperPlugin;
 import de.maxhenkel.voicechat.debug.CooldownTimer;
+import de.maxhenkel.voicechat.voice.server.VoicechatStats;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
@@ -52,6 +53,7 @@ public class PaperNetManager extends NetManager {
                         packet = packetType.getDeclaredConstructor().newInstance();
                         packet.fromBytes(new FriendlyByteBuf(Unpooled.wrappedBuffer(bytes)));
                     } catch (Exception e) {
+                        VoicechatStats.PLUGIN_MESSAGES_INVALID.increment();
                         // Clients control the contents, so don't let them flood the log
                         CooldownTimer.run("invalid_packet", () -> {
                             Voicechat.LOGGER.warn("Received invalid {} packet from {}: {}", packetId, player.getName(), e.toString());

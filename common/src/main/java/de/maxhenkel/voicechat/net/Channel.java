@@ -3,6 +3,7 @@ package de.maxhenkel.voicechat.net;
 import de.maxhenkel.voicechat.Voicechat;
 import de.maxhenkel.voicechat.intercompatibility.CommonCompatibilityManager;
 import de.maxhenkel.voicechat.legacy.LegacyCompatibility;
+import de.maxhenkel.voicechat.voice.server.VoicechatStats;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -38,6 +39,7 @@ public class Channel<T extends Packet<T>> {
         if (Voicechat.SERVER.getRateLimiter().allow(player.getUUID())) {
             return true;
         }
+        VoicechatStats.PLUGIN_MESSAGE_RATE_LIMIT_KICKS.increment();
         Voicechat.LOGGER.warn("Player {} exceeded packet rate limit", player.getName().getString());
         player.connection.disconnect(Component.translatableWithFallback("disconnect.exceeded_packet_rate", "Kicked for exceeding packet rate limit"));
         return false;

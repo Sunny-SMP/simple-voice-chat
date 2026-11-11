@@ -177,6 +177,10 @@ public class ServerGroupManager {
         return true;
     }
 
+    public int getGroupCount() {
+        return groups.size();
+    }
+
     @Nullable
     public Group getGroup(UUID groupID) {
         return groups.get(groupID);

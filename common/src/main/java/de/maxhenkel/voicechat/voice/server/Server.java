@@ -96,6 +96,7 @@ public class Server extends Thread {
         setUncaughtExceptionHandler(new VoicechatUncaughtExceptionHandler());
         processThread = new ProcessThread();
         processThread.start();
+        VoicechatStats.register();
     }
 
     public void onPlayerLoggedIn(ServerPlayer player) {
@@ -265,6 +266,7 @@ public class Server extends Thread {
      * @param player the player to reconnect
      */
     public void reconnectClient(ServerPlayer player) {
+        VoicechatStats.RECONNECTS.increment();
         UUID playerUUID = player.getUUID();
         ClientConnection connection = connections.remove(playerUUID);
         connectionSecrets.remove(playerUUID);
@@ -279,6 +281,7 @@ public class Server extends Thread {
     public void close() {
         socket.close();
         processThread.close();
+        VoicechatStats.unregister();
 
         PluginManager.instance().onServerStopped();
     }
@@ -326,6 +329,7 @@ public class Server extends Thread {
                     try {
                         message = NetworkMessage.readPacketServer(LegacyCompatibility.translateIncomingVoicePacket(Server.this, udpPacket), Server.this);
                     } catch (Exception e) {
+                        VoicechatStats.PACKETS_INVALID.increment();
                         CooldownTimer.run("failed_reading_packet", () -> {
                             Voicechat.LOGGER.warn("Failed to read packet from {}", udpPacket.getSocketAddress());
                         });
@@ -337,6 +341,7 @@ public class Server extends Thread {
                     }
 
                     if (Utils.getMilliseconds() - message.getTimestamp() > message.getTTL()) {
+                        VoicechatStats.PACKETS_DROPPED_EXPIRED.increment();
                         CooldownTimer.run("ttl", () -> {
                             Voicechat.LOGGER.warn("Dropping voice chat packets! Your Server might be overloaded!");
                             Voicechat.LOGGER.warn("Packet queue has {} packets", packetQueue.size());
@@ -371,6 +376,7 @@ public class Server extends Thread {
                         }
                         connection = new ClientConnection(connectionSecret, message.getAddress());
                         connections.put(connection.getPlayerUUID(), connection);
+                        VoicechatStats.CONNECTIONS_ESTABLISHED.increment();
                         Voicechat.LOGGER.info("Successfully validated connection of player {}", connection.getPlayerUUID());
                         ServerPlayer player = server.getPlayerList().getPlayer(connection.getPlayerUUID());
                         if (player != null) {
@@ -393,6 +399,7 @@ public class Server extends Thread {
                     }
 
                     if (!packetRateLimiter.allow(conn.getPlayerUUID())) {
+                        VoicechatStats.VOICE_RATE_LIMIT_KICKS.increment();
                         // Remove the connection and remove the secret, so the player can't continue spamming until the kick is processed
                         connections.remove(conn.getPlayerUUID());
                         connectionSecrets.remove(conn.getPlayerUUID());
@@ -401,6 +408,7 @@ public class Server extends Thread {
                     }
 
                     if (message.getPacket() instanceof MicPacket packet) {
+                        VoicechatStats.MIC_PACKETS.increment();
                         onMicPacket(conn.getPlayerUUID(), packet);
                     } else if (message.getPacket() instanceof PingPacket packet) {
                         pingManager.onPongPacket(packet);
@@ -539,7 +547,9 @@ public class Server extends Thread {
             return;
         }
 
-        sendPacket(soundPacket, connection);
+        if (sendPacket(soundPacket, connection)) {
+            VoicechatStats.SOUND_PACKETS_SENT.increment();
+        }
     }
 
     public double getBroadcastRange(float minRange) {
@@ -577,6 +587,7 @@ public class Server extends Thread {
         connections.values().removeIf(connection -> {
             if (timestamp - connection.getLastKeepAliveResponse() >= Voicechat.SERVER_CONFIG.keepAlive.get() * 10L) {
                 // Don't call disconnectClient here!
+                VoicechatStats.CONNECTION_TIMEOUTS.increment();
                 connectionSecrets.remove(connection.getPlayerUUID());
                 Voicechat.LOGGER.info("Player {} timed out", connection.getPlayerUUID());
                 ServerPlayer player = server.getPlayerList().getPlayer(connection.getPlayerUUID());
@@ -667,6 +678,7 @@ public class Server extends Thread {
             sendPacketRaw(packet, connection);
             return true;
         } catch (Exception e) {
+            VoicechatStats.SEND_FAILURES.increment();
             Voicechat.LOGGER.error("Failed to send voice chat packet to {}", connection.getPlayerUUID());
             return false;
         }
@@ -688,11 +700,22 @@ public class Server extends Thread {
     }
 
     private void queuePacket(RawUdpPacket rawUdpPacket) {
-        if (!packetQueue.offer(new UdpPacket(rawUdpPacket.getData(), rawUdpPacket.getSocketAddress(), Utils.getMilliseconds()))) {
+        if (packetQueue.offer(new UdpPacket(rawUdpPacket.getData(), rawUdpPacket.getSocketAddress(), Utils.getMilliseconds()))) {
+            VoicechatStats.PACKETS_RECEIVED.increment();
+        } else {
+            VoicechatStats.PACKETS_DROPPED_QUEUE_FULL.increment();
             CooldownTimer.run("packet_queue_full", () -> {
                 Voicechat.LOGGER.warn("Voice chat packet queue is full ({} packets) - dropping packets", packetQueue.size());
             });
         }
+    }
+
+    int getPacketQueueSize() {
+        return packetQueue.size();
+    }
+
+    int getPacketQueueCapacity() {
+        return packetQueue.size() + packetQueue.remainingCapacity();
     }
 
     public PingManager getPingManager() {

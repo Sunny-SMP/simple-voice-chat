@@ -26,6 +26,7 @@
 > - Fixed memory leaks, a race that could keep a player out of voice chat until the server restarted, and players getting stuck while connecting.
 > - Rate limited plugin messages and capped the voice packet queue.
 > - The Paper plugin no longer registers its commands on a Minecraft version it wasn't built for.
+> - Publishes voice chat server stats (connections, groups, packet queue, dropped packets, timeouts, reconnects, rate limit kicks) as the JMX MBean `de.maxhenkel.voicechat:type=Stats`. Commons' `VoiceChatStatsAppender` writes them to InfluxDB as `voicechat_stats`.
 >
 > Most of the changes in this fork were written with the help of AI ([Claude Code](https://claude.com/claude-code)).
 
