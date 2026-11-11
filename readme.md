@@ -27,6 +27,7 @@
 > - Rate limited plugin messages and capped the voice packet queue.
 > - The Paper plugin no longer registers its commands on a Minecraft version it wasn't built for.
 > - `/voicechat restart` (admin only) restarts the voice chat server with the current config and reconnects every player. Groups are removed.
+> - Publishes voice chat server stats (connections, groups, packet queue, dropped packets, timeouts, reconnects, rate limit kicks) as the JMX MBean `de.maxhenkel.voicechat:type=Stats`. Commons' `VoiceChatStatsAppender` writes them to InfluxDB as `voicechat_stats`.
 >
 > Most of the changes in this fork were written with the help of AI ([Claude Code](https://claude.com/claude-code)).
 
