@@ -30,6 +30,7 @@ public class ServerConfig {
     public ConfigEntry<Boolean> allowPings;
     public ConfigEntry<Boolean> useNatives;
     public ConfigEntry<Boolean> threadedServerSupport;
+    public ConfigEntry<Boolean> legacyCompatibility;
 
     public ServerConfig(ConfigBuilder builder, Voicechat.Loader loader) {
 
@@ -136,6 +137,12 @@ public class ServerConfig {
                 .booleanEntry("threaded_server_support", Voicechat.Loader.PAPER.equals(loader),
                         "If the voice chat should support servers that run multiple threads, like Folia",
                         "Disabling this may slightly improve performance, but can cause issues on servers that don't run everything on a single thread"
+                );
+        legacyCompatibility = builder
+                .booleanEntry("legacy_compatibility", false,
+                        "If clients running older voice chat versions (2.5.x and 2.6.x) should be allowed to connect",
+                        "This is experimental and makes voice chat less secure for players on those versions",
+                        "Changing this requires a server restart"
                 );
     }
 

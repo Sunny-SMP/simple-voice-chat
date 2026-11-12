@@ -27,8 +27,18 @@ public class LegacyCompatibility {
         PROTOCOLS.put(20, new LegacyProtocolV20());
     }
 
+    private static boolean enabled;
+
+    /**
+     * Reads the setting once, so the legacy channels registered at startup always match it.
+     * Changing it needs a server restart; <code>/voicechat restart</code> isn't enough.
+     */
+    public static void init() {
+        enabled = System.getProperty("voicechat.legacy") != null || Voicechat.SERVER_CONFIG.legacyCompatibility.get();
+    }
+
     public static boolean isEnabled() {
-        return System.getProperty("voicechat.legacy") != null;
+        return enabled;
     }
 
     public static boolean isSupported(int compatibilityVersion) {
