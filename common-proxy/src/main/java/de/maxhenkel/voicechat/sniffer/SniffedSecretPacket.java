@@ -117,7 +117,7 @@ public class SniffedSecretPacket {
      * @return the modified packet
      */
     public ByteBuffer patch(VoiceProxy voiceProxy) {
-        serverPort = voiceProxy.getPort();
+        serverPort = voiceProxy.getServerPort();
         voiceHost = voiceProxy.getConfig().voiceHost.get();
         return toBytes();
     }

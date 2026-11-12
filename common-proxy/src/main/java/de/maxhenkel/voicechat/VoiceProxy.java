@@ -23,6 +23,8 @@ public abstract class VoiceProxy {
     public static final String PING_PERMISSION = "voicechat.ping";
     public static final String RECONNECT_PERMISSION = "voicechat.reconnect";
     public static final String RECONNECT_OTHERS_PERMISSION = "voicechat.reconnect.others";
+    public static final String RELOAD_PERMISSION = "voicechat.reload";
+    public static final String RESTART_PERMISSION = "voicechat.restart";
     public static final String MOD_VERSION = BuildConstants.MOD_VERSION;
     public static final int COMPATIBILITY_VERSION = BuildConstants.COMPATIBILITY_VERSION;
 
@@ -36,6 +38,14 @@ public abstract class VoiceProxy {
     private final VoiceChatLogger voiceChatLogger;
     protected VoiceProxyServer voiceProxyServer;
     private ProxyConfig voiceProxyConfig;
+    /**
+     * The port the running VoiceProxyServer was started with, which is the port sent to clients.
+     */
+    private volatile int serverPort;
+    /**
+     * The bind address the running VoiceProxyServer was started with.
+     */
+    private volatile String serverBindAddress;
 
     public VoiceProxy(VoiceChatLogger logger) {
         voiceChatLogger = logger;
@@ -86,17 +96,76 @@ public abstract class VoiceProxy {
     }
 
     /**
-     * Closes any existing VoiceProxyServer instance and starts a fresh VoiceProxyServer
+     * Returns the port that clients have to send voice chat packets to.
+     * This is the port of the running VoiceProxyServer, so a changed port in the config only takes effect after a restart.
      */
-    protected void reloadVoiceProxyServer() {
+    public int getServerPort() {
+        return serverPort;
+    }
+
+    /**
+     * Reads the config file again.
+     * The config is kept as it is if the file can't be read.
+     *
+     * @return <code>false</code> if the config could not be loaded
+     */
+    private boolean loadConfig() {
         try {
             Files.createDirectories(getDataDirectory());
             Path configPath = getDataDirectory().resolve("voicechat-proxy.properties");
             voiceProxyConfig = ConfigBuilder.builder(ProxyConfig::new).path(configPath).build();
         } catch (Exception e) {
             voiceChatLogger.error("Error loading config", e);
+            return false;
         }
         checkCorrectHost();
+        return true;
+    }
+
+    /**
+     * Reads the config file again without restarting the VoiceProxyServer.
+     * The voice host and pings take effect right away, a changed port or bind address only after {@link #restart()}.
+     *
+     * @return the result of the reload
+     */
+    public synchronized ReloadResult reloadConfig() {
+        if (!loadConfig()) {
+            return ReloadResult.FAILED;
+        }
+        voiceChatLogger.info("Reloaded the voice chat proxy config");
+        if (getPort() != serverPort || !voiceProxyConfig.bindAddress.get().equals(serverBindAddress)) {
+            return ReloadResult.RESTART_REQUIRED;
+        }
+        return ReloadResult.RELOADED;
+    }
+
+    public enum ReloadResult {
+        RELOADED, RESTART_REQUIRED, FAILED
+    }
+
+    /**
+     * Restarts the VoiceProxyServer with the current config and reconnects every player that has a voice chat session on this proxy.
+     * The backend servers time out the old sessions and send new secrets, so the clients use the new port right away.
+     *
+     * @return the number of players that are reconnected
+     */
+    public synchronized int restart() {
+        voiceChatLogger.info("Restarting the voice chat proxy server");
+        reloadVoiceProxyServer();
+        int reconnected = 0;
+        for (UUID playerUUID : voiceProxySniffer.getSniffedPlayers()) {
+            if (reconnectPlayer(playerUUID)) {
+                reconnected++;
+            }
+        }
+        return reconnected;
+    }
+
+    /**
+     * Closes any existing VoiceProxyServer instance and starts a fresh VoiceProxyServer
+     */
+    protected synchronized void reloadVoiceProxyServer() {
+        loadConfig();
 
         if (voiceProxyServer != null) {
             voiceProxyServer.interrupt();
@@ -107,6 +176,8 @@ public abstract class VoiceProxy {
                 voiceChatLogger.error("Interrupted while waiting for the voice chat proxy server to shut down", e);
             }
         }
+        serverPort = getPort();
+        serverBindAddress = voiceProxyConfig.bindAddress.get();
         voiceProxyServer = new VoiceProxyServer(this);
         voiceProxyServer.start();
     }

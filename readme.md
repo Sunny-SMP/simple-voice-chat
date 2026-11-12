@@ -22,6 +22,7 @@
 >
 > What we changed:
 > - Added `/voicechat reconnect` and `/voicechatproxy reconnect`, which reconnect a player's voice chat without them leaving the server.
+> - `/voicechatproxy reload` (`voicechat.reload`) reloads the proxy config. A changed port or bind address needs `/voicechatproxy restart` (`voicechat.restart`), which restarts the voice chat proxy server and reconnects every player.
 > - Reworked `/voicechat`: clickable help, console support and clearer errors.
 > - Fixed memory leaks, a race that could keep a player out of voice chat until the server restarted, and players getting stuck while connecting.
 > - Rate limited plugin messages and capped the voice packet queue.

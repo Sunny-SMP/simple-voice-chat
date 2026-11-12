@@ -6,6 +6,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -70,6 +71,13 @@ public class VoiceProxySniffer {
      */
     public SniffedSecretPacket getSecretPacket(UUID playerUUID) {
         return secretPacketMap.get(playerUUID);
+    }
+
+    /**
+     * @return a copy of the UUIDs of all players that have a sniffed backend voice chat socket
+     */
+    public Set<UUID> getSniffedPlayers() {
+        return Set.copyOf(backendSocketMap.keySet());
     }
 
     /**

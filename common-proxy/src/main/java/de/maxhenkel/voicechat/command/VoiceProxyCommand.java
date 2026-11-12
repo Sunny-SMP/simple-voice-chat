@@ -45,6 +45,18 @@ public class VoiceProxyCommand {
                     return;
                 }
                 break;
+            case "reload":
+                if (sender.hasPermission(VoiceProxy.RELOAD_PERMISSION)) {
+                    reload(sender);
+                    return;
+                }
+                break;
+            case "restart":
+                if (sender.hasPermission(VoiceProxy.RESTART_PERMISSION)) {
+                    restart(sender);
+                    return;
+                }
+                break;
             case "help":
                 break;
             default:
@@ -84,6 +96,12 @@ public class VoiceProxyCommand {
         if (canReconnect(sender)) {
             subcommands.add("reconnect");
         }
+        if (sender.hasPermission(VoiceProxy.RELOAD_PERMISSION)) {
+            subcommands.add("reload");
+        }
+        if (sender.hasPermission(VoiceProxy.RESTART_PERMISSION)) {
+            subcommands.add("restart");
+        }
         return subcommands;
     }
 
@@ -118,6 +136,26 @@ public class VoiceProxyCommand {
         for (String subcommand : getSubcommands(sender)) {
             sender.sendMessage("  " + getUsage(sender, subcommand));
         }
+    }
+
+    private void reload(CommandSender sender) {
+        switch (voiceProxy.reloadConfig()) {
+            case RELOADED:
+                sender.sendMessage("Reloaded the voice chat proxy config");
+                break;
+            case RESTART_REQUIRED:
+                sender.sendMessage("Reloaded the voice chat proxy config");
+                sender.sendMessage(String.format("The port or bind address changed, run /%s restart to apply it", VoiceProxy.VOICECHAT_COMMAND));
+                break;
+            case FAILED:
+                sender.sendMessage("Failed to reload the voice chat proxy config - check the proxy log");
+                break;
+        }
+    }
+
+    private void restart(CommandSender sender) {
+        int reconnected = voiceProxy.restart();
+        sender.sendMessage(String.format("Restarted the voice chat proxy server, reconnecting %s player(s) - this can take a few seconds", reconnected));
     }
 
     private void reconnect(CommandSender sender, String[] args) {
