@@ -1,82 +1,201 @@
 package de.maxhenkel.voicechat.gui.volume;
 
-import com.google.common.collect.Lists;
+import de.maxhenkel.voicechat.VoicechatClient;
 import de.maxhenkel.voicechat.gui.widgets.ListScreenListBase;
+import de.maxhenkel.voicechat.plugins.impl.VolumeCategoryImpl;
+import de.maxhenkel.voicechat.voice.client.ClientCategoryManager;
+import de.maxhenkel.voicechat.voice.client.ClientManager;
+import de.maxhenkel.voicechat.voice.common.PlayerState;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.util.ARGB;
+import net.minecraft.util.Util;
 
 import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class AdjustVolumeList extends ListScreenListBase<VolumeEntry> {
 
-    protected AdjustVolumesScreen screen;
-    protected final List<VolumeEntry> entries;
-    protected String filter;
-    protected VolumeTab tab;
+    private static final int GROUP_LINE_COLOR = ARGB.color(255, 160, 160, 160);
 
-    public AdjustVolumeList(int width, int height, int top, int itemSize, AdjustVolumesScreen screen, VolumeTab tab) {
+    // Remember expanded categories and the selected tab for the whole session
+    private static final Set<String> EXPANDED_CATEGORIES = new HashSet<>();
+    private static boolean showPlayers = true;
+
+    protected AdjustVolumesScreen screen;
+    protected String filter;
+
+    public AdjustVolumeList(int width, int height, int top, int itemSize, AdjustVolumesScreen screen) {
         super(width, height, top, itemSize);
         this.screen = screen;
-        this.entries = Lists.newArrayList();
         this.filter = "";
-        this.tab = tab;
         updateEntryList();
     }
 
     public static void update() {
-        if (Minecraft.getInstance().gui.screen() instanceof AdjustVolumesScreen volumesScreen) {
-            volumesScreen.volumeList.updateEntryList();
-        }
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.execute(() -> {
+            if (minecraft.gui.screen() instanceof AdjustVolumesScreen volumesScreen) {
+                volumesScreen.volumeList.updateEntryList();
+            }
+        });
     }
 
     public void updateEntryList() {
-        entries.clear();
-        entries.addAll(tab.createEntries(screen));
-        updateFilter();
+        replaceEntries(showPlayers ? createPlayerEntries() : createOtherEntries());
+        refreshScrollAmount();
     }
 
-    public void updateFilter() {
-        clearEntries();
-        List<VolumeEntry> filteredEntries = new ArrayList<>(entries);
-        if (!filter.isEmpty()) {
-            filteredEntries.removeIf(volumeEntry -> {
-                if (volumeEntry instanceof PlayerVolumeEntry playerVolumeEntry) {
-                    return playerVolumeEntry.getState() == null || !playerVolumeEntry.getState().getName().toLowerCase(Locale.ROOT).contains(filter);
-                } else if (volumeEntry instanceof CategoryVolumeEntry categoryVolumeEntry) {
-                    return !categoryVolumeEntry.getCategory().getSearchName().toLowerCase(Locale.ROOT).contains(filter);
-                }
-                return true;
-            });
+    private List<VolumeEntry> createPlayerEntries() {
+        Collection<PlayerState> onlinePlayers = ClientManager.getPlayerStateManager().getPlayerStates(false);
+        List<PlayerState> players = new ArrayList<>(onlinePlayers);
+        if (VoicechatClient.CLIENT_CONFIG.offlinePlayerVolumeAdjustment.get()) {
+            players.addAll(getOfflinePlayers(onlinePlayers));
         }
-        filteredEntries.sort((e1, e2) -> volumeEntryToSearchString(e1).compareToIgnoreCase(volumeEntryToSearchString(e2)));
-        replaceEntries(filteredEntries);
+        return players.stream()
+                .filter(player -> matchesFilter(player.getName()))
+                .sorted(Comparator.comparing(PlayerState::getName, String.CASE_INSENSITIVE_ORDER))
+                .<VolumeEntry>map(player -> new PlayerVolumeEntry(player, screen))
+                .toList();
     }
 
-    private String volumeEntryToSearchString(VolumeEntry entry) {
-        if (entry instanceof PlayerVolumeEntry playerVolumeEntry) {
-            return playerVolumeEntry.getState() == null ? "" : playerVolumeEntry.getState().getName();
-        } else if (entry instanceof CategoryVolumeEntry categoryVolumeEntry) {
-            return categoryVolumeEntry.getCategory().getSearchName();
+    private List<PlayerState> getOfflinePlayers(Collection<PlayerState> onlinePlayers) {
+        List<PlayerState> offlinePlayers = new ArrayList<>();
+        for (UUID uuid : VoicechatClient.PLAYER_VOLUME_CONFIG.getVolumes().keySet()) {
+            if (uuid.equals(Util.NIL_UUID)) {
+                continue;
+            }
+            if (onlinePlayers.stream().anyMatch(state -> uuid.equals(state.getUuid()))) {
+                continue;
+            }
+
+            String name = VoicechatClient.USERNAME_CACHE.getUsername(uuid);
+
+            if (name == null) {
+                continue;
+            }
+
+            offlinePlayers.add(new PlayerState(uuid, name, false, false, true));
         }
-        return "";
+        return offlinePlayers;
+    }
+
+    private List<VolumeEntry> createOtherEntries() {
+        List<VolumeEntry> entries = new ArrayList<>();
+        if (filter.isEmpty()) {
+            entries.add(new OtherVolumeEntry(screen));
+        }
+        getCategoryTree().forEach((category, children) -> {
+            if (filter.isEmpty()) {
+                addExpandableCategory(entries, category, children);
+            } else {
+                addMatchingCategory(entries, category, children);
+            }
+        });
+        return entries;
+    }
+
+    private Map<VolumeCategoryImpl, List<VolumeCategoryImpl>> getCategoryTree() {
+        Map<String, VolumeCategoryImpl> categoriesById = ClientManager.getCategoryManager().getCategories().stream()
+                .collect(Collectors.toMap(VolumeCategoryImpl::getId, Function.identity()));
+        List<VolumeCategoryImpl> sortedCategories = categoriesById.values().stream()
+                .sorted(Comparator.comparing(VolumeCategoryImpl::getSearchName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+
+        Map<VolumeCategoryImpl, List<VolumeCategoryImpl>> tree = new LinkedHashMap<>();
+        for (VolumeCategoryImpl category : sortedCategories) {
+            if (ClientCategoryManager.getParent(category.getId(), categoriesById) == null) {
+                tree.put(category, new ArrayList<>());
+            }
+        }
+        for (VolumeCategoryImpl category : sortedCategories) {
+            VolumeCategoryImpl parent = ClientCategoryManager.getParent(category.getId(), categoriesById);
+            if (parent != null) {
+                tree.get(parent).add(category);
+            }
+        }
+        return tree;
+    }
+
+    private void addExpandableCategory(List<VolumeEntry> entries, VolumeCategoryImpl category, List<VolumeCategoryImpl> children) {
+        if (children.isEmpty()) {
+            entries.add(new CategoryVolumeEntry(category, children, screen, false, true));
+            return;
+        }
+        boolean expanded = EXPANDED_CATEGORIES.contains(category.getId());
+        entries.add(new ExpandableCategoryVolumeEntry(category, children, screen, expanded, () -> toggleExpanded(category)));
+        if (expanded) {
+            addChildren(entries, children);
+        }
+    }
+
+    private void addMatchingCategory(List<VolumeEntry> entries, VolumeCategoryImpl category, List<VolumeCategoryImpl> children) {
+        List<VolumeCategoryImpl> matchingChildren = children.stream().filter(child -> matchesFilter(child.getSearchName())).toList();
+        if (matchesFilter(category.getSearchName()) || !matchingChildren.isEmpty()) {
+            entries.add(new CategoryVolumeEntry(category, children, screen, false, true));
+            addChildren(entries, matchingChildren);
+        }
+    }
+
+    private void addChildren(List<VolumeEntry> entries, List<VolumeCategoryImpl> children) {
+        for (VolumeCategoryImpl child : children) {
+            entries.add(new CategoryVolumeEntry(child, List.of(), screen, true, false));
+        }
+    }
+
+    private void toggleExpanded(VolumeCategoryImpl category) {
+        if (!EXPANDED_CATEGORIES.remove(category.getId())) {
+            EXPANDED_CATEGORIES.add(category.getId());
+        }
+        updateEntryList();
+    }
+
+    private boolean matchesFilter(String name) {
+        return name.toLowerCase(Locale.ROOT).contains(filter);
     }
 
     public void setFilter(String filter) {
         this.filter = filter;
-        updateFilter();
-    }
-
-    public void setTab(VolumeTab tab) {
-        this.tab = tab;
         updateEntryList();
         setScrollAmount(0D);
     }
 
-    public VolumeTab getTab() {
-        return tab;
+    public void setShowPlayers(boolean showPlayers) {
+        AdjustVolumeList.showPlayers = showPlayers;
+        updateEntryList();
+        setScrollAmount(0D);
+    }
+
+    public boolean isShowingPlayers() {
+        return showPlayers;
     }
 
     public boolean isEmpty() {
         return children().isEmpty();
+    }
+
+    @Override
+    protected void extractListItems(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
+        List<VolumeEntry> entries = children();
+        for (int i = 1; i < entries.size(); i++) {
+            VolumeEntry entry = entries.get(i);
+            if (entry.indented) {
+                int lineTop = entries.get(i - 1).getContentBottom();
+                guiGraphics.fill(entry.getContentX(), lineTop, entry.getContentX() + VolumeEntry.CHILD_INDENT, entry.getContentBottom(), GROUP_LINE_COLOR);
+            }
+        }
+        super.extractListItems(guiGraphics, mouseX, mouseY, delta);
+    }
+
+    @Override
+    public int getRowLeft() {
+        return screen.getGuiLeft() + 6;
+    }
+
+    @Override
+    public int getRowWidth() {
+        return 224;
     }
 
 }
