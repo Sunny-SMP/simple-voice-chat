@@ -17,8 +17,8 @@
 > [!NOTE]
 > This is a private fork of [Simple Voice Chat](https://github.com/henkelmax/simple-voice-chat) for the SunnySMP server, and nothing here is meant to go back upstream. For the official project, use [henkelmax/simple-voice-chat](https://github.com/henkelmax/simple-voice-chat).
 >
-> - `sunny/26.2` builds the Paper plugin for Minecraft 26.2.
-> - `sunny/26.3` builds the Paper, Bukkit and Velocity plugins. We only use the Velocity one.
+> - `sunny/26.3` is the main branch. It builds the Paper and Velocity plugins for Minecraft 26.3, which the network runs.
+> - `sunny/26.2` is the old Paper branch for Minecraft 26.2 and is no longer maintained.
 >
 > What we changed:
 > - Added `/voicechat reconnect` and `/voicechatproxy reconnect`, which reconnect a player's voice chat without them leaving the server.
